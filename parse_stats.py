@@ -57,10 +57,18 @@ def _assign(words, columns):
     return out
 
 
+def _nearest_set(x, set_cols):
+    n, cx = min(set_cols, key=lambda c: abs(c[1] - x))
+    return n if abs(cx - x) < 6 else None
+
+
 def parse(pdf_path):
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
         lines = _lines(page)
+        # Remplaçant entré en jeu : petit rectangle vide dans la colonne du set
+        sub_marks = [((r["x0"] + r["x1"]) / 2, (r["top"] + r["bottom"]) / 2)
+                     for r in page.rects if r["bottom"] - r["top"] < 5 and r["x1"] - r["x0"] < 12]
 
     # En-têtes de colonnes de stats (ligne contenant « Vote »)
     header_idx = [i for i, ln in enumerate(lines) if ln["words"][0]["text"] != "Vote"
@@ -109,7 +117,25 @@ def parse(pdf_path):
                 p = {"number": int(m.group(1)), "name": name,
                      "libero": int(libero), "sets_started": len(starts)}
                 p.update(_assign([w for w in ws if w["x0"] > first_stat_x], stat_cols))
+                p["_y"] = (ws[0]["top"] + ws[0]["bottom"]) / 2
+                p["_sets"] = {_nearest_set(_center(w), set_cols) for w in starts}
                 players.append(p)
+
+        # Rattache chaque marque de remplacement à la ligne de joueur la plus proche
+        for x, y in sub_marks:
+            n = _nearest_set(x, set_cols)
+            near = min(players, key=lambda p: abs(p["_y"] - y), default=None)
+            if n is not None and near and abs(near["_y"] - y) < 5:
+                near["_sets"].add(n)
+        n_sets = len(set_cols)
+        for p in players:
+            played = len(p.pop("_sets"))
+            p.pop("_y")
+            # Actions sans marque d'entrée : libéro (souvent non marqué) = tout le match,
+            # autre joueur (erreur de saisie) = 1 set
+            if not played and any(p[k] for k in STAT_KEYS if k != "vote"):
+                played = n_sets if p["libero"] else 1
+            p["sets_played"] = played
         teams.append({"players": players, "total": total, "sets": sets})
     return teams
 

@@ -52,5 +52,9 @@ Onglets : classement, matchs (avec feuille détaillée et lien vers le PDF offic
 - Les % de réception agrégés sont recalculés en pondérant par le nombre de réceptions, à partir des
   % arrondis du PDF : ils peuvent différer d'un point des valeurs exactes.
 - Un joueur est identifié par (équipe, nom) : un transfert en cours de saison crée deux fiches.
-- « Sets tit. » = sets commencés dans le six de base ; les entrées en cours de set ne sont pas
-  comptées (le PDF ne les indique pas sous forme de texte).
+- Sets joués = sets commencés dans le six de base (chiffre dans la colonne du set) ou entrés en
+  remplacement (petit rectangle dessiné dans la colonne). Un libéro sans marque est compté sur tout
+  le match s'il a des actions ; un autre joueur avec des actions mais sans marque (erreur de saisie)
+  compte 1 set.
+- Classements par set / par match : un joueur doit avoir joué une part minimale des sets de son
+  équipe (50 % par défaut, réglable dans l'onglet).

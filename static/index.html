@@ -188,13 +188,13 @@ async function openGame(id) {
     $('#dlg-body').innerHTML = '<div class="empty">Feuille de statistiques pas encore disponible.</div>'; return dlg.showModal();
   }
   const side = (tid, name) => {
-    const ps = g.players.filter(p => p.team_id === tid && (p.pts_tot || p.srv_tot || p.rec_tot || p.att_tot || p.sets_started));
+    const ps = g.players.filter(p => p.team_id === tid && (p.pts_tot || p.srv_tot || p.rec_tot || p.att_tot || p.sets_played));
     const tot = g.team_sets.find(t => t.team_id === tid && t.set_no === 0);
     const perSet = g.team_sets.filter(t => t.team_id === tid && t.set_no > 0);
     return `<h3>${esc(name)}</h3><div class="scroll"><table>
       <thead>${groupHeader(BOX, 4)}<tr><th>N°</th><th class="l">Joueur</th><th>Sets</th><th>Note</th>${BOX.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
       <tbody>${ps.map(p => `<tr class="click" onclick="openPlayer(${p.player_id})"><td class="num">${p.number}${p.libero ? ' L' : ''}</td>
-        <td class="l">${esc(p.name)}</td><td>${p.sets_started || '<span class="muted">·</span>'}</td><td>${p.vote ?? '<span class="muted">·</span>'}</td>
+        <td class="l">${esc(p.name)}</td><td>${p.sets_played || '<span class="muted">·</span>'}</td><td>${p.vote ?? '<span class="muted">·</span>'}</td>
         ${BOX.map(c => `<td>${(c[2] || dash)(p[c[0]], p)}</td>`).join('')}</tr>`).join('')}
       <tr><td></td><td class="l"><b>Total</b></td><td></td><td></td>${BOX.map(c => `<td><b>${(c[2] || (v => v ?? 0))(tot[c[0]])}</b></td>`).join('')}</tr>
       ${perSet.map(s => `<tr class="muted"><td></td><td class="l">Set ${s.set_no} <span class="muted">(pts : ${s.won_srv} serv · ${s.won_att} att · ${s.won_blk} bloc · ${s.won_op_err} fautes adv.)</span></td><td></td><td></td>
@@ -209,69 +209,83 @@ async function openGame(id) {
 
 // ---------- Joueurs ----------
 const PCOLS = {
-  general: [['games', 'MJ'], ['sets_started', 'Sets tit.'], ['pts', 'Pts'], ['pts_g', 'Pts/m'], ['bp', 'BP'], ['wl', 'V-D', sign], ['att_pts', 'Att'], ['srv_pts', 'Aces'], ['blk_pts', 'Blocs'], ['vote', 'Note']],
-  attack: [['games', 'MJ'], ['att_tot', 'Tot'], ['att_pts', 'Pts'], ['att_err', 'Err'], ['att_blo', 'Contrés'], ['att_pct', 'Pts%', pct], ['att_eff', 'Eff%', pct]],
-  serve: [['games', 'MJ'], ['srv_tot', 'Tot'], ['srv_pts', 'Aces'], ['srv_err', 'Err'], ['ace_pct', 'Ace%', pct], ['err_pct', 'Err%', pct]],
-  reception: [['games', 'MJ'], ['rec_tot', 'Tot'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pct], ['rec_exc_pct', 'Exc%', pct], ['rec_err_pct', 'Err%', pct]],
-  block: [['games', 'MJ'], ['sets_started', 'Sets tit.'], ['blk_pts', 'Blocs'], ['blk_g', 'Blocs/m']],
+  general: [['games', 'MJ'], ['sets', 'Sets'], ['pts', 'Pts'], ['pts_s', 'Pts/set'], ['bp', 'BP'], ['wl', 'V-D', sign], ['att_pts', 'Att'], ['srv_pts', 'Aces'], ['blk_pts', 'Blocs'], ['vote', 'Note']],
+  attack: [['sets', 'Sets'], ['att_tot', 'Tot'], ['att_pts', 'Pts'], ['att_s', 'Pts/set'], ['att_err', 'Err'], ['att_blo', 'Contrés'], ['att_pct', 'Pts%', pct], ['att_eff', 'Eff%', pct]],
+  serve: [['sets', 'Sets'], ['srv_tot', 'Tot'], ['srv_pts', 'Aces'], ['ace_s', 'Aces/set'], ['srv_err', 'Err'], ['ace_pct', 'Ace%', pct], ['err_pct', 'Err%', pct]],
+  reception: [['sets', 'Sets'], ['rec_tot', 'Tot'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pct], ['rec_exc_pct', 'Exc%', pct], ['rec_err_pct', 'Err%', pct]],
+  block: [['games', 'MJ'], ['sets', 'Sets'], ['blk_pts', 'Blocs'], ['blk_s', 'Blocs/set']],
 };
 const PMIN = { attack: ['att_tot', 20], serve: ['srv_tot', 15], reception: ['rec_tot', 20] };
 const PDEF = { general: 'pts', attack: 'att_eff', serve: 'srv_pts', reception: 'rec_pos_pct', block: 'blk_pts' };
 const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true };
 
 // ---------- Classements statistiques (toute la ligue) ----------
-// min : colonne de volume ; un joueur doit atteindre MIN_SHARE du volume du leader de cette colonne
-const MIN_SHARE = 0.4;
+// count : statistique cumulable, affichée en total, par set ou par match selon le mode.
+// vol : colonne de volume pour les % (au moins VOL_SHARE du volume du leader de la ligue).
+// Hors totaux, un joueur doit en plus avoir joué une part minimale des sets de son équipe.
+const VOL_SHARE = 0.4;
 const fix = d => v => v == null ? '–' : v.toFixed(d);
 const LEADERS = [
-  { t: 'Points', k: 'pts', sub: r => `${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres` },
-  { t: 'Points par match', k: 'pts_g', f: fix(1), min: 'games', sub: r => `${r.pts} pts en ${r.games} m.` },
-  { t: 'Points en attaque', k: 'att_pts', sub: r => `${r.att_tot} attaques` },
-  { t: 'Efficacité en attaque', k: 'att_eff', f: pct, min: 'att_tot', sub: r => `${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.` },
-  { t: 'Réussite en attaque', k: 'att_pct', f: pct, min: 'att_tot', sub: r => `${r.att_pts}/${r.att_tot}` },
-  { t: 'Aces', k: 'srv_pts', sub: r => `${r.srv_tot} services · ${r.srv_err} fautes` },
-  { t: 'Aces par match', k: 'ace_g', f: fix(2), min: 'games', sub: r => `${r.srv_pts} aces en ${r.games} m.` },
-  { t: 'Points au contre', k: 'blk_pts', sub: r => `${r.games} matchs` },
-  { t: 'Contres par match', k: 'blk_g', f: fix(2), min: 'games', sub: r => `${r.blk_pts} contres en ${r.games} m.` },
-  { t: 'Réception positive', k: 'rec_pos_pct', f: pct, min: 'rec_tot', sub: r => `${r.rec_tot} réceptions · ${r.rec_err} fautes` },
-  { t: 'Réception parfaite', k: 'rec_exc_pct', f: pct, min: 'rec_tot', sub: r => `${r.rec_tot} réceptions` },
-  { t: 'Points en break-point', k: 'bp', sub: r => `${r.pts} pts au total` },
-  { t: 'Différentiel V-D', k: 'wl', f: sign, sub: r => `${r.games} matchs` },
-  { t: 'Note moyenne Data Volley', k: 'vote', f: fix(1), min: 'games', sub: r => `${r.games} matchs` },
+  { t: 'Points', k: 'pts', count: true, sub: r => `${r.pts} pts : ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres` },
+  { t: 'Points en attaque', k: 'att_pts', count: true, sub: r => `${r.att_pts} pts sur ${r.att_tot} attaques` },
+  { t: 'Efficacité en attaque', k: 'att_eff', f: pct, vol: 'att_tot', sub: r => `${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.` },
+  { t: 'Réussite en attaque', k: 'att_pct', f: pct, vol: 'att_tot', sub: r => `${r.att_pts}/${r.att_tot}` },
+  { t: 'Aces', k: 'srv_pts', count: true, sub: r => `${r.srv_pts} aces · ${r.srv_tot} services · ${r.srv_err} fautes` },
+  { t: 'Points au contre', k: 'blk_pts', count: true, sub: r => `${r.blk_pts} contres` },
+  { t: 'Réception positive', k: 'rec_pos_pct', f: pct, vol: 'rec_tot', sub: r => `${r.rec_tot} réceptions · ${r.rec_err} fautes` },
+  { t: 'Réception parfaite', k: 'rec_exc_pct', f: pct, vol: 'rec_tot', sub: r => `${r.rec_tot} réceptions` },
+  { t: 'Points en break-point', k: 'bp', count: true, sub: r => `${r.bp} BP sur ${r.pts} pts` },
+  { t: 'Différentiel V-D', k: 'wl', count: true, signed: true, sub: r => `${r.wl > 0 ? '+' : ''}${r.wl} au total` },
+  { t: 'Note moyenne Data Volley', k: 'vote', f: fix(1), sub: () => '' },
 ];
-const VOL = { games: 'matchs joués', att_tot: 'attaques', rec_tot: 'réceptions' };
-const lstate = { top: 10, team: '' };
+const VOL = { att_tot: 'attaques', rec_tot: 'réceptions' };
+const MODES = { total: ['Totaux', '', null], set: ['Par set', ' par set', 'sets'], match: ['Par match', ' par match', 'games'] };
+const lstate = { top: 10, team: '', mode: 'set', part: 0.5 };
 
 async function renderLeaders() {
   const [all, teams] = await Promise.all([loadPlayers(), load('standings')]);
   $('#view').innerHTML = `<div class="toolbar">
+      <div class="chips" id="lmode">${Object.entries(MODES).map(([k, m]) => `<button class="chip ${lstate.mode === k ? 'on' : ''}" data-m="${k}">${m[0]}</button>`).join('')}</div>
       <select id="lteam"><option value="">Toute la LNA</option>${teams.map(t => `<option value="${t.team_id}" ${lstate.team == t.team_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
-      <div class="chips">${[5, 10, 20].map(n => `<button class="chip ${lstate.top === n ? 'on' : ''}" data-n="${n}">Top ${n}</button>`).join('')}</div>
+      <label class="muted">Minimum <select id="lpart">${[[0, 'aucun'], [0.25, '25 %'], [0.5, '50 %'], [0.75, '75 %']]
+        .map(([v, n]) => `<option value="${v}" ${lstate.part === v ? 'selected' : ''}>${n}</option>`).join('')}</select> des sets de l'équipe</label>
+      <div class="chips" id="ltop">${[5, 10, 20].map(n => `<button class="chip ${lstate.top === n ? 'on' : ''}" data-n="${n}">Top ${n}</button>`).join('')}</div>
     </div><div class="leaders" id="lgrid"></div>
-    <div class="legend">Les classements en % ou « par match » exigent un volume minimum : ${Math.round(MIN_SHARE * 100)} % de celui du joueur le plus sollicité de la ligue.
-      Efficacité en attaque = (points − fautes − contrés) / attaques. Cliquer un joueur pour sa fiche match par match.</div>`;
+    <div class="legend">Sets joués = sets commencés comme titulaire ou entrés en remplacement (feuille officielle) ; un libéro sans marque est compté sur tout le match.
+      Hors totaux, un joueur doit avoir joué la part minimale choisie des sets disputés par son équipe ; les classements en % exigent en plus
+      ${Math.round(VOL_SHARE * 100)} % du volume du joueur le plus sollicité de la ligue. Efficacité en attaque = (points − fautes − contrés) / attaques.</div>`;
   const draw = () => {
+    const [, suffix, denom] = MODES[lstate.mode];
     $('#lgrid').innerHTML = LEADERS.map(c => {
-      const f = c.f || (v => v);
-      // Le seuil est calculé sur toute la ligue, même quand on filtre une équipe
-      const minVal = c.min ? Math.ceil(MIN_SHARE * Math.max(...all.map(r => r[c.min] || 0))) : 0;
-      const list = all.filter(r => r[c.k] != null && (!c.min || r[c.min] >= minVal) && (!lstate.team || r.team_id == lstate.team))
-        .sort((a, b) => b[c.k] - a[c.k] || b.games - a.games).slice(0, lstate.top);
-      const max = Math.max(...list.map(r => r[c.k]), 1e-9);
-      return `<div class="card"><h2>${c.t}</h2><div class="crit">${c.min ? `min. ${minVal} ${VOL[c.min]}` : ''}</div>
-        ${list.map((r, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
+      const rate = c.count && denom;
+      const val = r => rate ? r[c.k] / Math.max(r[denom], 1) : r[c.k];
+      const f = rate ? (v => (c.signed && v > 0 ? '+' : '') + v.toFixed(denom === 'sets' ? 2 : 1)) : c.signed ? sign : (c.f || (v => v));
+      const needPart = !(c.count && lstate.mode === 'total');
+      // Seuils calculés sur toute la ligue, même quand on filtre une équipe
+      const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
+      const list = all.filter(r => r[c.k] != null && (!lstate.team || r.team_id == lstate.team)
+          && (!needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= volMin))
+        .map(r => ({ r, v: val(r) })).sort((a, b) => b.v - a.v || b.r.sets - a.r.sets).slice(0, lstate.top);
+      const max = Math.max(...list.map(x => x.v), 1e-9);
+      const crit = [needPart && lstate.part ? `${Math.round(lstate.part * 100)} % des sets de l'équipe` : '', c.vol ? `${volMin} ${VOL[c.vol]}` : '']
+        .filter(Boolean).join(' · ');
+      return `<div class="card"><h2>${c.t}${c.count ? suffix : ''}</h2><div class="crit">${crit ? 'min. ' + crit : ''}</div>
+        ${list.map(({ r, v }, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
           <span class="rk">${i + 1}</span>
           <span class="lname"><b>${esc(r.name)}</b> <span class="lteam">${esc(r.team)}</span></span>
-          <span class="lval">${f(r[c.k])}</span>
-          <span></span><span class="lsub" style="grid-column: 2 / 4">${c.sub(r)}</span>
-          <span class="bar"><i style="width:${Math.max(0, 100 * r[c.k] / max)}%"></i></span>
+          <span class="lval">${f(v)}</span>
+          <span></span><span class="lsub" style="grid-column: 2 / 4">${[c.sub(r), `${r.sets}/${r.team_sets} sets · ${r.games} m.`].filter(Boolean).join(' · ')}</span>
+          <span class="bar"><i style="width:${Math.max(0, 100 * v / max)}%"></i></span>
         </div>`).join('') || '<div class="empty">Aucun joueur</div>'}</div>`;
     }).join('');
   };
   $('#lteam').onchange = e => { lstate.team = e.target.value; draw(); };
-  document.querySelectorAll('.chip[data-n]').forEach(c => c.onclick = () => {
-    lstate.top = +c.dataset.n; document.querySelectorAll('.chip[data-n]').forEach(x => x.classList.toggle('on', x === c)); draw();
+  $('#lpart').onchange = e => { lstate.part = +e.target.value; draw(); };
+  const chips = (sel, attr, apply) => document.querySelectorAll(`${sel} .chip`).forEach(c => c.onclick = () => {
+    apply(c.dataset[attr]); document.querySelectorAll(`${sel} .chip`).forEach(x => x.classList.toggle('on', x === c)); draw();
   });
+  chips('#lmode', 'm', v => lstate.mode = v);
+  chips('#ltop', 'n', v => lstate.top = +v);
   draw();
 }
 
@@ -280,9 +294,9 @@ async function loadPlayers() {
   const rows = await load('players');
   if (!rows.enriched) {
     for (const r of rows) {
-      const g = Math.max(r.games, 1);
-      r.pts_g = +(r.pts / g).toFixed(1); r.blk_g = +(r.blk_pts / g).toFixed(2); r.ace_g = +(r.srv_pts / g).toFixed(2);
-      r.att_g = +(r.att_pts / g).toFixed(1);
+      const s = Math.max(r.sets, 1);
+      r.pts_s = +(r.pts / s).toFixed(2); r.att_s = +(r.att_pts / s).toFixed(2);
+      r.ace_s = +(r.srv_pts / s).toFixed(2); r.blk_s = +(r.blk_pts / s).toFixed(2);
       r.ace_pct = r.srv_tot ? Math.round(100 * r.srv_pts / r.srv_tot) : null;
       r.err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
       r.rec_err_pct = r.rec_tot ? Math.round(100 * r.rec_err / r.rec_tot) : null;
@@ -339,10 +353,10 @@ async function openPlayer(id) {
       const home = g.home_team_id === g.team_id, my = home ? g.home_sets : g.away_sets, their = home ? g.away_sets : g.home_sets;
       return `<tr class="click" onclick="openGame(${g.game_id})"><td class="l">${fmtDate(g.play_date)}</td>
         <td class="l">${home ? '' : '@ '}${esc(g.opponent)} <span class="${my > their ? 'pos' : 'neg'}">${my}-${their}</span></td>
-        <td>${g.sets_started || '<span class="muted">·</span>'}</td><td>${g.vote ?? '<span class="muted">·</span>'}</td>
+        <td>${g.sets_played || '<span class="muted">·</span>'}</td><td>${g.vote ?? '<span class="muted">·</span>'}</td>
         ${BOX.map(c => `<td>${(c[2] || dash)(g[c[0]], g)}</td>`).join('')}</tr>`;
     }).join('')}
-    <tr><td class="l"><b>Total</b></td><td></td><td><b>${tot('sets_started')}</b></td><td></td>${BOX.map(c => `<td><b>${c[2] ? '' : tot(c[0])}</b></td>`).join('')}</tr>
+    <tr><td class="l"><b>Total</b></td><td></td><td><b>${tot('sets_played')}</b></td><td></td>${BOX.map(c => `<td><b>${c[2] ? '' : tot(c[0])}</b></td>`).join('')}</tr>
     </tbody></table></div>`;
   dlg.showModal();
 }

@@ -90,13 +90,18 @@ def players(con, team_id=None):
     return q(con, f"""
         SELECT p.player_id, p.name, t.name team, t.team_id, MAX(pg.libero) libero,
                (SELECT number FROM player_game x WHERE x.player_id = p.player_id ORDER BY game_id DESC LIMIT 1) number,
-               -- Matchs joués : titulaire ou au moins une action (la feuille liste aussi les remplaçants restés sur le banc)
-               SUM(sets_started > 0 OR pts_tot + srv_tot + rec_tot + att_tot > 0) games,
-               SUM(sets_started) sets_started, ROUND(AVG(vote), 1) vote, {AGG}
+               -- Matchs / sets joués : la feuille liste aussi les remplaçants restés sur le banc
+               SUM(sets_played > 0) games, SUM(sets_played) sets, SUM(sets_started) sets_started,
+               ROUND(AVG(vote), 1) vote, {AGG},
+               -- Sets et matchs disputés par l'équipe (feuilles importées), pour les minimums
+               (SELECT SUM(home_sets + away_sets) FROM games g WHERE g.stats_status = 'ok'
+                  AND t.team_id IN (g.home_team_id, g.away_team_id)) team_sets,
+               (SELECT COUNT(*) FROM games g WHERE g.stats_status = 'ok'
+                  AND t.team_id IN (g.home_team_id, g.away_team_id)) team_games
         FROM player_game pg JOIN players p USING(player_id) JOIN teams t ON t.team_id = pg.team_id
         {where}
         GROUP BY p.player_id
-        HAVING SUM(pts_tot + srv_tot + rec_tot + att_tot) > 0 OR SUM(sets_started) > 0
+        HAVING SUM(sets_played) > 0
         """, *args)
 
 

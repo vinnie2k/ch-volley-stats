@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS player_game (
     number       INTEGER,
     libero       INTEGER DEFAULT 0,
     sets_started INTEGER DEFAULT 0,
+    sets_played  INTEGER DEFAULT 0,  -- titulaire ou entré en jeu dans le set
     vote         REAL,
     pts_tot      INTEGER, bp INTEGER, wl INTEGER,
     srv_tot      INTEGER, srv_err INTEGER, srv_pts INTEGER,
@@ -76,4 +77,8 @@ def connect(path=DB_PATH):
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
+    # Migration des bases créées avant l'ajout de la colonne (puis : scraper.py --reparse)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(player_game)")}
+    if "sets_played" not in cols:
+        con.execute("ALTER TABLE player_game ADD COLUMN sets_played INTEGER DEFAULT 0")
     return con
