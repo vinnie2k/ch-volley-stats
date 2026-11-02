@@ -13,6 +13,7 @@ from pathlib import Path
 
 import db
 import parse_stats
+import positions
 
 BASE = "https://www.volleyball.ch"
 PDF_DIR = Path(__file__).parent / "data" / "pdf"
@@ -181,6 +182,12 @@ def main():
         con.commit()
         print(f"  {label}: {status}")
     print(f"Terminé : {len(played)} matchs joués, {new} feuille(s) importée(s).")
+    # Postes, nationalité et fiche : effectifs officiels, puis déduction des postes manquants
+    linked = positions.apply_rosters(con)
+    guessed = positions.infer_positions(con)
+    con.commit()
+    missing = con.execute("SELECT COUNT(*) FROM players WHERE position IS NULL").fetchone()[0]
+    print(f"Effectifs : {linked} joueurs reliés, {len(guessed)} postes déduits des feuilles, {missing} sans poste.")
 
 
 if __name__ == "__main__":

@@ -35,6 +35,10 @@ AGG = """
 """
 
 
+# Fiche joueur issue de l'effectif officiel (poste éventuellement déduit des feuilles)
+PROFILE = "p.position, p.position_src, p.nat_code, p.nationality, p.height, p.birth_year, p.photo"
+
+
 def q(con, sql, *args):
     return [dict(r) for r in con.execute(sql, args)]
 
@@ -79,7 +83,7 @@ def game(con, gid):
         return None
     full = dict(con.execute("SELECT hall, referees FROM games WHERE game_id=?", (gid,)).fetchone())
     g.update(full)
-    g["players"] = q(con, """SELECT pg.*, p.name FROM player_game pg JOIN players p USING(player_id)
+    g["players"] = q(con, """SELECT pg.*, p.name, p.position, p.position_src FROM player_game pg JOIN players p USING(player_id)
                              WHERE game_id=? ORDER BY pg.team_id, pg.number""", gid)
     g["team_sets"] = q(con, "SELECT * FROM team_game WHERE game_id=? ORDER BY team_id, set_no", gid)
     return g
@@ -88,7 +92,7 @@ def game(con, gid):
 def players(con, team_id=None):
     where, args = ("WHERE pg.team_id = ?", (team_id,)) if team_id else ("", ())
     return q(con, f"""
-        SELECT p.player_id, p.name, t.name team, t.team_id, MAX(pg.libero) libero,
+        SELECT p.player_id, p.name, t.name team, t.team_id, MAX(pg.libero) libero, {PROFILE},
                (SELECT number FROM player_game x WHERE x.player_id = p.player_id ORDER BY game_id DESC LIMIT 1) number,
                -- Matchs / sets joués : la feuille liste aussi les remplaçants restés sur le banc
                SUM(sets_played > 0) games, SUM(sets_played) sets, SUM(sets_started) sets_started,
@@ -106,7 +110,7 @@ def players(con, team_id=None):
 
 
 def player(con, pid):
-    info = q(con, "SELECT p.player_id, p.name, t.name team, t.team_id FROM players p JOIN teams t USING(team_id) "
+    info = q(con, f"SELECT p.player_id, p.name, t.name team, t.team_id, {PROFILE} FROM players p JOIN teams t USING(team_id) "
                   "WHERE player_id=?", pid)
     if not info:
         return None

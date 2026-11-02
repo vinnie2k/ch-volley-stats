@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS players (
     player_id  INTEGER PRIMARY KEY AUTOINCREMENT,
     team_id    INTEGER NOT NULL REFERENCES teams(team_id),
     name       TEXT NOT NULL COLLATE NOCASE,   -- « von Burg » / « Von Burg » selon les feuilles
+    -- Effectif officiel volleyball.ch ; poste déduit des feuilles quand il manque
+    position     TEXT,      -- pass, diagonal, out, middle, libero
+    position_src TEXT,      -- 'officiel' ou 'déduit'
+    nat_code     TEXT,      -- code CIO (SUI, ARG…)
+    nationality  TEXT,
+    height       INTEGER,
+    birth_year   INTEGER,
+    photo        TEXT,
     UNIQUE (team_id, name)
 );
 
@@ -46,6 +54,7 @@ CREATE TABLE IF NOT EXISTS player_game (
     libero       INTEGER DEFAULT 0,
     sets_started INTEGER DEFAULT 0,
     sets_played  INTEGER DEFAULT 0,  -- titulaire ou entré en jeu dans le set
+    start_zones  TEXT,               -- « 1:3,2:1S » = set:zone de départ, S = passeur titulaire
     vote         REAL,
     pts_tot      INTEGER, bp INTEGER, wl INTEGER,
     srv_tot      INTEGER, srv_err INTEGER, srv_pts INTEGER,
@@ -90,8 +99,21 @@ def connect(path=DB_PATH):
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
-    # Migration des bases créées avant l'ajout de la colonne (puis : scraper.py --reparse)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(player_game)")}
-    if "sets_played" not in cols:
-        con.execute("ALTER TABLE player_game ADD COLUMN sets_played INTEGER DEFAULT 0")
+    # Migration des bases créées avant l'ajout des colonnes (puis : scraper.py --reparse)
+    for table, col, decl in MIGRATIONS:
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     return con
+
+
+MIGRATIONS = [
+    ("player_game", "sets_played", "INTEGER DEFAULT 0"),
+    ("player_game", "start_zones", "TEXT"),
+    ("players", "position", "TEXT"),
+    ("players", "position_src", "TEXT"),
+    ("players", "nat_code", "TEXT"),
+    ("players", "nationality", "TEXT"),
+    ("players", "height", "INTEGER"),
+    ("players", "birth_year", "INTEGER"),
+    ("players", "photo", "TEXT"),
+]

@@ -72,6 +72,10 @@
   .lrow .rk { color: var(--muted); font-variant-numeric: tabular-nums; }
   .lrow .lname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lrow .lteam { font-size: 12px; color: var(--muted); }
+  .postag { font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; font-weight: 400; }
+  .postag.guess { border-style: dashed; font-style: italic; }
+  .profile { display: flex; gap: 14px; align-items: center; }
+  .profile img { width: 64px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--line); }
   .lrow .lval { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
   .lrow .lsub { font-size: 11px; color: var(--muted); text-align: right; font-weight: 400; }
   .lrow .bar { grid-column: 2 / 4; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
@@ -104,6 +108,14 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const fmtDate = d => new Date(d.replace(' ', 'T')).toLocaleDateString('fr-CH', {weekday: 'short', day: 'numeric', month: 'short'});
 const fmtTime = d => d.slice(11, 16);
 const pct = v => v == null ? '–' : v + '%';
+const POS = { pass: 'Passeur', diagonal: 'Diagonal', out: 'Ailier', middle: 'Central', libero: 'Libéro' };
+const posTag = r => r.position ? `<span class="postag${r.position_src === 'déduit' ? ' guess' : ''}"
+  title="${r.position_src === 'déduit' ? 'Poste déduit des feuilles de match (absent de l’effectif officiel)' : 'Poste selon l’effectif officiel'}">${POS[r.position]}</span>` : '';
+// Filtres poste / nationalité partagés par Stats joueurs et Joueurs
+const posOptions = cur => `<option value="">Tous les postes</option>${Object.entries(POS).map(([k, n]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${n}</option>`).join('')}`;
+const natOptions = cur => [['', 'Toutes nationalités'], ['SUI', 'Suisses'], ['foreign', 'Étrangers']]
+  .map(([k, n]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${n}</option>`).join('');
+const natMatch = (r, f) => !f || (f === 'SUI' ? r.nat_code === 'SUI' : r.nat_code && r.nat_code !== 'SUI');
 // % affiché seulement s'il y a des tentatives (sinon le PDF indique 0 %)
 const pctIf = tot => (v, r) => r && !r[tot] ? '<span class="muted">·</span>' : pct(v);
 const sign = v => v == null ? '–' : `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${v}</span>`;
@@ -195,7 +207,7 @@ async function openGame(id) {
     return `<h3>${esc(name)}</h3><div class="scroll"><table>
       <thead>${groupHeader(BOX, 4)}<tr><th>N°</th><th class="l">Joueur</th><th>Sets</th><th>Note</th>${BOX.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
       <tbody>${ps.map(p => `<tr class="click" onclick="openPlayer(${p.player_id})"><td class="num">${p.number}${p.libero ? ' L' : ''}</td>
-        <td class="l">${esc(p.name)}</td><td>${p.sets_played || '<span class="muted">·</span>'}</td><td>${p.vote ?? '<span class="muted">·</span>'}</td>
+        <td class="l">${esc(p.name)} ${posTag(p)}</td><td>${p.sets_played || '<span class="muted">·</span>'}</td><td>${p.vote ?? '<span class="muted">·</span>'}</td>
         ${BOX.map(c => `<td>${(c[2] || dash)(p[c[0]], p)}</td>`).join('')}</tr>`).join('')}
       <tr><td></td><td class="l"><b>Total</b></td><td></td><td></td>${BOX.map(c => `<td><b>${(c[2] || (v => v ?? 0))(tot[c[0]])}</b></td>`).join('')}</tr>
       ${perSet.map(s => `<tr class="muted"><td></td><td class="l">Set ${s.set_no} <span class="muted">(pts : ${s.won_srv} serv · ${s.won_att} att · ${s.won_blk} bloc · ${s.won_op_err} fautes adv.)</span></td><td></td><td></td>
@@ -218,7 +230,7 @@ const PCOLS = {
 };
 const PMIN = { attack: ['att_tot', 20], serve: ['srv_tot', 15], reception: ['rec_tot', 20] };
 const PDEF = { general: 'pts', attack: 'att_eff', serve: 'srv_pts', reception: 'rec_pos_pct', block: 'blk_pts' };
-const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true };
+const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true, pos: '', nat: '' };
 
 // ---------- Classements statistiques (toute la ligue) ----------
 // count : statistique cumulable, affichée en total, par set ou par match selon le mode.
@@ -241,13 +253,14 @@ const LEADERS = [
 ];
 const VOL = { att_tot: 'attaques', rec_tot: 'réceptions' };
 const MODES = { total: ['Totaux', '', null], set: ['Par set', ' par set', 'sets'], match: ['Par match', ' par match', 'games'] };
-const lstate = { top: 10, team: '', mode: 'set', part: 0.5 };
+const lstate = { top: 10, team: '', mode: 'set', part: 0.5, pos: '', nat: '' };
 
 async function renderLeaders() {
   const [all, teams] = await Promise.all([loadPlayers(), load('standings')]);
   $('#view').innerHTML = `<div class="toolbar">
       <div class="chips" id="lmode">${Object.entries(MODES).map(([k, m]) => `<button class="chip ${lstate.mode === k ? 'on' : ''}" data-m="${k}">${m[0]}</button>`).join('')}</div>
       <select id="lteam"><option value="">Toute la LNA</option>${teams.map(t => `<option value="${t.team_id}" ${lstate.team == t.team_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <select id="lpos">${posOptions(lstate.pos)}</select><select id="lnat">${natOptions(lstate.nat)}</select>
       <label class="muted">Minimum <select id="lpart">${[[0, 'aucun'], [0.25, '25 %'], [0.5, '50 %'], [0.75, '75 %']]
         .map(([v, n]) => `<option value="${v}" ${lstate.part === v ? 'selected' : ''}>${n}</option>`).join('')}</select> des sets de l'équipe</label>
       <div class="chips" id="ltop">${[5, 10, 20].map(n => `<button class="chip ${lstate.top === n ? 'on' : ''}" data-n="${n}">Top ${n}</button>`).join('')}</div>
@@ -265,6 +278,7 @@ async function renderLeaders() {
       // Seuils calculés sur toute la ligue, même quand on filtre une équipe
       const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
       const list = all.filter(r => r[c.k] != null && (!lstate.team || r.team_id == lstate.team)
+          && (!lstate.pos || r.position === lstate.pos) && natMatch(r, lstate.nat)
           && (!needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= volMin))
         .map(r => ({ r, v: val(r) })).sort((a, b) => b.v - a.v || b.r.sets - a.r.sets).slice(0, lstate.top);
       const max = Math.max(...list.map(x => x.v), 1e-9);
@@ -273,7 +287,7 @@ async function renderLeaders() {
       return `<div class="card"><h2>${c.t}${c.count ? suffix : ''}</h2><div class="crit">${crit ? 'min. ' + crit : ''}</div>
         ${list.map(({ r, v }, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
           <span class="rk">${i + 1}</span>
-          <span class="lname"><b>${esc(r.name)}</b> <span class="lteam">${esc(r.team)}</span></span>
+          <span class="lname"><b>${esc(r.name)}</b> ${posTag(r)} <span class="lteam">${esc(r.team)}</span></span>
           <span class="lval">${f(v)}</span>
           <span></span><span class="lsub" style="grid-column: 2 / 4">${[c.sub(r), `${r.sets}/${r.team_sets} sets · ${r.games} m.`].filter(Boolean).join(' · ')}</span>
           <span class="bar"><i style="width:${Math.max(0, 100 * v / max)}%"></i></span>
@@ -281,6 +295,8 @@ async function renderLeaders() {
     }).join('');
   };
   $('#lteam').onchange = e => { lstate.team = e.target.value; draw(); };
+  $('#lpos').onchange = e => { lstate.pos = e.target.value; draw(); };
+  $('#lnat').onchange = e => { lstate.nat = e.target.value; draw(); };
   $('#lpart').onchange = e => { lstate.part = +e.target.value; draw(); };
   const chips = (sel, attr, apply) => document.querySelectorAll(`${sel} .chip`).forEach(c => c.onclick = () => {
     apply(c.dataset[attr]); document.querySelectorAll(`${sel} .chip`).forEach(x => x.classList.toggle('on', x === c)); draw();
@@ -313,19 +329,22 @@ async function renderPlayers() {
       <div class="chips">${[['general', 'Général'], ['attack', 'Attaque'], ['serve', 'Service'], ['reception', 'Réception'], ['block', 'Bloc']]
         .map(([k, n]) => `<button class="chip ${pstate.cat === k ? 'on' : ''}" data-c="${k}">${n}</button>`).join('')}</div>
       <select id="pteam"><option value="">Toutes les équipes</option>${teams.map(t => `<option value="${t.team_id}" ${pstate.team == t.team_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <select id="ppos">${posOptions(pstate.pos)}</select><select id="pnat">${natOptions(pstate.nat)}</select>
       <input id="pq" placeholder="Rechercher un joueur" value="${esc(pstate.q)}">
       <label class="muted" id="pminl"><input type="checkbox" id="pmin" ${pstate.min ? 'checked' : ''}> volume minimum</label>
     </div><div class="scroll" id="ptable"></div></div>`;
   const draw = () => {
     const cols = PCOLS[pstate.cat], min = PMIN[pstate.cat];
     $('#pminl').style.display = min ? '' : 'none';
-    let list = rows.filter(r => (!pstate.team || r.team_id == pstate.team) && r.name.toLowerCase().includes(pstate.q.toLowerCase()));
+    let list = rows.filter(r => (!pstate.team || r.team_id == pstate.team) && r.name.toLowerCase().includes(pstate.q.toLowerCase())
+      && (!pstate.pos || r.position === pstate.pos) && natMatch(r, pstate.nat));
     if (min && pstate.min) list = list.filter(r => r[min[0]] >= min[1]);
     list.sort((a, b) => ((a[pstate.sort] ?? -1e9) - (b[pstate.sort] ?? -1e9)) * pstate.dir || a.name.localeCompare(b.name));
-    $('#ptable').innerHTML = `<table><thead><tr><th>#</th><th class="l">Joueur</th><th class="l">Équipe</th>
+    $('#ptable').innerHTML = `<table><thead><tr><th>#</th><th class="l">Joueur</th><th class="l">Poste</th><th class="l">Nat.</th><th class="l">Équipe</th>
       ${cols.map(c => `<th class="sort ${pstate.sort === c[0] ? 'active' : ''}" data-s="${c[0]}">${c[1]}${pstate.sort === c[0] ? (pstate.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>
       <tbody>${list.map((r, i) => `<tr class="click" onclick="openPlayer(${r.player_id})"><td class="num">${i + 1}</td>
-        <td class="l"><b>${esc(r.name)}</b> <span class="muted">${r.number ?? ''}${r.libero ? ' L' : ''}</span></td><td class="l muted">${esc(r.team)}</td>
+        <td class="l"><b>${esc(r.name)}</b> <span class="muted">${r.number ?? ''}</span></td><td class="l">${posTag(r)}</td>
+        <td class="l muted" title="${esc(r.nationality || '')}">${r.nat_code || ''}</td><td class="l muted">${esc(r.team)}</td>
         ${cols.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="20" class="empty">Aucun joueur</td></tr>`}
       </tbody></table>
       ${min && pstate.min ? `<div class="legend">Volume minimum : ${min[1]} ${({att_tot: 'attaques', srv_tot: 'services', rec_tot: 'réceptions'})[min[0]]}.</div>` : ''}
@@ -340,13 +359,18 @@ async function renderPlayers() {
   });
   $('#pteam').onchange = e => { pstate.team = e.target.value; draw(); };
   $('#pq').oninput = e => { pstate.q = e.target.value; draw(); };
+  $('#ppos').onchange = e => { pstate.pos = e.target.value; draw(); };
+  $('#pnat').onchange = e => { pstate.nat = e.target.value; draw(); };
   $('#pmin').onchange = e => { pstate.min = e.target.checked; draw(); };
   draw();
 }
 
 async function openPlayer(id) {
   const p = await api('players/' + id);
-  $('#dlg-title').innerHTML = `<div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}</div>`;
+  const facts = [p.position && POS[p.position] + (p.position_src === 'déduit' ? ' (déduit des feuilles)' : ''),
+    p.nationality, p.birth_year && `né en ${p.birth_year}`, p.height && `${p.height} cm`].filter(Boolean).join(' · ');
+  $('#dlg-title').innerHTML = `<div class="profile">${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy">` : ''}
+    <div><div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}${facts ? ' · ' + esc(facts) : ''}</div></div></div>`;
   const tot = k => p.games.reduce((s, g) => s + (g[k] || 0), 0);
   $('#dlg-body').innerHTML = `<div class="scroll"><table>
     <thead>${groupHeader(BOX, 4)}<tr><th class="l">Date</th><th class="l">Adversaire</th><th>Sets</th><th>Note</th>${BOX.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>

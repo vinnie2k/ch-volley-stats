@@ -69,6 +69,10 @@ def parse(pdf_path):
         # Remplaçant entré en jeu : petit rectangle vide dans la colonne du set
         sub_marks = [((r["x0"] + r["x1"]) / 2, (r["top"] + r["bottom"]) / 2)
                      for r in page.rects if r["bottom"] - r["top"] < 5 and r["x1"] - r["x0"] < 12]
+        # Case de titulaire : fond gris, sauf le passeur titulaire (fond blanc)
+        white_cells = [((r["x0"] + r["x1"]) / 2, (r["top"] + r["bottom"]) / 2)
+                       for r in page.rects if r["fill"] and r["bottom"] - r["top"] > 5 and r["x1"] - r["x0"] < 12
+                       and isinstance(r["non_stroking_color"], tuple) and min(r["non_stroking_color"]) > 0.95]
 
     # En-têtes de colonnes de stats (ligne contenant « Vote »)
     header_idx = [i for i, ln in enumerate(lines) if ln["words"][0]["text"] != "Vote"
@@ -114,8 +118,17 @@ def parse(pdf_path):
                 name = " ".join(w["text"] for w in ws
                                 if 43 < w["x0"] < min(c[1] for c in set_cols) - 6)
                 starts = [w for w in ws if w["x0"] < last_set_x and _center(w) > set_cols[0][1] - 6]
+                # Zone de départ par set ; « S » marque le passeur titulaire
+                zones = {}
+                for w in starts:
+                    n = _nearest_set(_center(w), set_cols)
+                    wy = (w["top"] + w["bottom"]) / 2
+                    setter = any(abs(cx - _center(w)) < 5 and abs(cy - wy) < 6 for cx, cy in white_cells)
+                    if n is not None and w["text"].isdigit():
+                        zones[n] = w["text"] + ("S" if setter else "")
                 p = {"number": int(m.group(1)), "name": name,
-                     "libero": int(libero), "sets_started": len(starts)}
+                     "libero": int(libero), "sets_started": len(starts),
+                     "start_zones": ",".join(f"{n}:{z}" for n, z in sorted(zones.items()))}
                 p.update(_assign([w for w in ws if w["x0"] > first_stat_x], stat_cols))
                 p["_y"] = (ws[0]["top"] + ws[0]["bottom"]) / 2
                 p["_sets"] = {_nearest_set(_center(w), set_cols) for w in starts}
