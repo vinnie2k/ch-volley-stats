@@ -90,7 +90,9 @@ def players(con, team_id=None):
     return q(con, f"""
         SELECT p.player_id, p.name, t.name team, t.team_id, MAX(pg.libero) libero,
                (SELECT number FROM player_game x WHERE x.player_id = p.player_id ORDER BY game_id DESC LIMIT 1) number,
-               COUNT(*) games, SUM(sets_started) sets_started, ROUND(AVG(vote), 1) vote, {AGG}
+               -- Matchs joués : titulaire ou au moins une action (la feuille liste aussi les remplaçants restés sur le banc)
+               SUM(sets_started > 0 OR pts_tot + srv_tot + rec_tot + att_tot > 0) games,
+               SUM(sets_started) sets_started, ROUND(AVG(vote), 1) vote, {AGG}
         FROM player_game pg JOIN players p USING(player_id) JOIN teams t ON t.team_id = pg.team_id
         {where}
         GROUP BY p.player_id

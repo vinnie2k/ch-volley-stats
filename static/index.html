@@ -63,6 +63,20 @@
   h3 { margin: 18px 0 8px; font-size: 15px; }
   a { color: var(--accent); }
   .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .leaders { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .leaders .card { margin: 0; padding: 14px 16px 10px; }
+  .leaders h2 { font-size: 15px; margin: 0; }
+  .leaders .crit { font-size: 12px; color: var(--muted); margin: 2px 0 8px; min-height: 1em; }
+  .lrow { display: grid; grid-template-columns: 22px 1fr auto; gap: 2px 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  .lrow:hover .lname { color: var(--accent); }
+  .lrow .rk { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lrow .lname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .lteam { font-size: 12px; color: var(--muted); }
+  .lrow .lval { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .lrow .lsub { font-size: 11px; color: var(--muted); text-align: right; font-weight: 400; }
+  .lrow .bar { grid-column: 2 / 4; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .lrow .bar i { display: block; height: 100%; background: var(--accent); }
+  .lrow.first .lval { color: var(--accent); }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
 </style>
 </head>
@@ -72,6 +86,7 @@
     <div class="top"><h1>LNA <span>Hommes</span> · statistiques 2026/27</h1><div class="meta" id="meta"></div></div>
     <nav id="tabs">
       <button data-tab="standings" class="on">Classement</button>
+      <button data-tab="leaders">Classements stats</button>
       <button data-tab="games">Matchs</button>
       <button data-tab="players">Joueurs</button>
       <button data-tab="teams">Équipes</button>
@@ -96,7 +111,7 @@ let cache = {};
 const load = async k => cache[k] ??= await api(k);
 
 // ---------- Onglets ----------
-const views = { standings: renderStandings, games: renderGames, players: renderPlayers, teams: renderTeams };
+const views = { standings: renderStandings, leaders: renderLeaders, games: renderGames, players: renderPlayers, teams: renderTeams };
 $('#tabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
@@ -204,14 +219,81 @@ const PMIN = { attack: ['att_tot', 20], serve: ['srv_tot', 15], reception: ['rec
 const PDEF = { general: 'pts', attack: 'att_eff', serve: 'srv_pts', reception: 'rec_pos_pct', block: 'blk_pts' };
 const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true };
 
-async function renderPlayers() {
-  const [rows, teams] = await Promise.all([load('players'), load('standings')]);
-  for (const r of rows) {
-    r.pts_g = +(r.pts / r.games).toFixed(1); r.blk_g = +(r.blk_pts / r.games).toFixed(2);
-    r.ace_pct = r.srv_tot ? Math.round(100 * r.srv_pts / r.srv_tot) : null;
-    r.err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
-    r.rec_err_pct = r.rec_tot ? Math.round(100 * r.rec_err / r.rec_tot) : null;
+// ---------- Classements statistiques (toute la ligue) ----------
+// min : colonne de volume ; un joueur doit atteindre MIN_SHARE du volume du leader de cette colonne
+const MIN_SHARE = 0.4;
+const fix = d => v => v == null ? '–' : v.toFixed(d);
+const LEADERS = [
+  { t: 'Points', k: 'pts', sub: r => `${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres` },
+  { t: 'Points par match', k: 'pts_g', f: fix(1), min: 'games', sub: r => `${r.pts} pts en ${r.games} m.` },
+  { t: 'Points en attaque', k: 'att_pts', sub: r => `${r.att_tot} attaques` },
+  { t: 'Efficacité en attaque', k: 'att_eff', f: pct, min: 'att_tot', sub: r => `${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.` },
+  { t: 'Réussite en attaque', k: 'att_pct', f: pct, min: 'att_tot', sub: r => `${r.att_pts}/${r.att_tot}` },
+  { t: 'Aces', k: 'srv_pts', sub: r => `${r.srv_tot} services · ${r.srv_err} fautes` },
+  { t: 'Aces par match', k: 'ace_g', f: fix(2), min: 'games', sub: r => `${r.srv_pts} aces en ${r.games} m.` },
+  { t: 'Points au contre', k: 'blk_pts', sub: r => `${r.games} matchs` },
+  { t: 'Contres par match', k: 'blk_g', f: fix(2), min: 'games', sub: r => `${r.blk_pts} contres en ${r.games} m.` },
+  { t: 'Réception positive', k: 'rec_pos_pct', f: pct, min: 'rec_tot', sub: r => `${r.rec_tot} réceptions · ${r.rec_err} fautes` },
+  { t: 'Réception parfaite', k: 'rec_exc_pct', f: pct, min: 'rec_tot', sub: r => `${r.rec_tot} réceptions` },
+  { t: 'Points en break-point', k: 'bp', sub: r => `${r.pts} pts au total` },
+  { t: 'Différentiel V-D', k: 'wl', f: sign, sub: r => `${r.games} matchs` },
+  { t: 'Note moyenne Data Volley', k: 'vote', f: fix(1), min: 'games', sub: r => `${r.games} matchs` },
+];
+const VOL = { games: 'matchs joués', att_tot: 'attaques', rec_tot: 'réceptions' };
+const lstate = { top: 10, team: '' };
+
+async function renderLeaders() {
+  const [all, teams] = await Promise.all([loadPlayers(), load('standings')]);
+  $('#view').innerHTML = `<div class="toolbar">
+      <select id="lteam"><option value="">Toute la LNA</option>${teams.map(t => `<option value="${t.team_id}" ${lstate.team == t.team_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <div class="chips">${[5, 10, 20].map(n => `<button class="chip ${lstate.top === n ? 'on' : ''}" data-n="${n}">Top ${n}</button>`).join('')}</div>
+    </div><div class="leaders" id="lgrid"></div>
+    <div class="legend">Les classements en % ou « par match » exigent un volume minimum : ${Math.round(MIN_SHARE * 100)} % de celui du joueur le plus sollicité de la ligue.
+      Efficacité en attaque = (points − fautes − contrés) / attaques. Cliquer un joueur pour sa fiche match par match.</div>`;
+  const draw = () => {
+    $('#lgrid').innerHTML = LEADERS.map(c => {
+      const f = c.f || (v => v);
+      // Le seuil est calculé sur toute la ligue, même quand on filtre une équipe
+      const minVal = c.min ? Math.ceil(MIN_SHARE * Math.max(...all.map(r => r[c.min] || 0))) : 0;
+      const list = all.filter(r => r[c.k] != null && (!c.min || r[c.min] >= minVal) && (!lstate.team || r.team_id == lstate.team))
+        .sort((a, b) => b[c.k] - a[c.k] || b.games - a.games).slice(0, lstate.top);
+      const max = Math.max(...list.map(r => r[c.k]), 1e-9);
+      return `<div class="card"><h2>${c.t}</h2><div class="crit">${c.min ? `min. ${minVal} ${VOL[c.min]}` : ''}</div>
+        ${list.map((r, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
+          <span class="rk">${i + 1}</span>
+          <span class="lname"><b>${esc(r.name)}</b> <span class="lteam">${esc(r.team)}</span></span>
+          <span class="lval">${f(r[c.k])}</span>
+          <span></span><span class="lsub" style="grid-column: 2 / 4">${c.sub(r)}</span>
+          <span class="bar"><i style="width:${Math.max(0, 100 * r[c.k] / max)}%"></i></span>
+        </div>`).join('') || '<div class="empty">Aucun joueur</div>'}</div>`;
+    }).join('');
+  };
+  $('#lteam').onchange = e => { lstate.team = e.target.value; draw(); };
+  document.querySelectorAll('.chip[data-n]').forEach(c => c.onclick = () => {
+    lstate.top = +c.dataset.n; document.querySelectorAll('.chip[data-n]').forEach(x => x.classList.toggle('on', x === c)); draw();
+  });
+  draw();
+}
+
+// Ratios dérivés, calculés une fois sur la liste mise en cache
+async function loadPlayers() {
+  const rows = await load('players');
+  if (!rows.enriched) {
+    for (const r of rows) {
+      const g = Math.max(r.games, 1);
+      r.pts_g = +(r.pts / g).toFixed(1); r.blk_g = +(r.blk_pts / g).toFixed(2); r.ace_g = +(r.srv_pts / g).toFixed(2);
+      r.att_g = +(r.att_pts / g).toFixed(1);
+      r.ace_pct = r.srv_tot ? Math.round(100 * r.srv_pts / r.srv_tot) : null;
+      r.err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
+      r.rec_err_pct = r.rec_tot ? Math.round(100 * r.rec_err / r.rec_tot) : null;
+    }
+    rows.enriched = true;
   }
+  return rows;
+}
+
+async function renderPlayers() {
+  const [rows, teams] = await Promise.all([loadPlayers(), load('standings')]);
   $('#view').innerHTML = `<div class="card"><div class="toolbar">
       <div class="chips">${[['general', 'Général'], ['attack', 'Attaque'], ['serve', 'Service'], ['reception', 'Réception'], ['block', 'Bloc']]
         .map(([k, n]) => `<button class="chip ${pstate.cat === k ? 'on' : ''}" data-c="${k}">${n}</button>`).join('')}</div>
