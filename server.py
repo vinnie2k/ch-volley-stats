@@ -121,17 +121,38 @@ def player(con, pid):
 
 
 def teams(con):
+    # Les « Points won » n'existent que sur les lignes de set ; l'adversaire de chaque
+    # match fournit les stats concédées (fautes données, attaque adverse, aces subis).
     return q(con, f"""
-        SELECT t.team_id, t.name, COUNT(*) games, {AGG}
-        FROM team_game tg JOIN teams t USING(team_id)
-        WHERE set_no = 0 GROUP BY t.team_id""")
-
-
-def team_points_won(con):
-    # La ligne « Players total » ne contient pas « Points won » : on somme les sets.
-    return {r["team_id"]: r for r in q(con, """
-        SELECT team_id, SUM(won_srv) won_srv, SUM(won_att) won_att, SUM(won_blk) won_blk, SUM(won_op_err) won_op_err
-        FROM team_game WHERE set_no > 0 GROUP BY team_id""")}
+        WITH won AS (
+            SELECT game_id, team_id, SUM(won_srv) won_srv, SUM(won_att) won_att,
+                   SUM(won_blk) won_blk, SUM(won_op_err) won_op_err
+            FROM team_game WHERE set_no > 0 GROUP BY game_id, team_id),
+        pair AS (
+            SELECT a.game_id, a.team_id, b.team_id opp_id
+            FROM team_game a JOIN team_game b
+              ON b.game_id = a.game_id AND b.set_no = 0 AND b.team_id <> a.team_id
+            WHERE a.set_no = 0),
+        own AS (SELECT team_id, COUNT(*) games, {AGG} FROM team_game WHERE set_no = 0 GROUP BY team_id),
+        mine AS (SELECT team_id, SUM(won_srv) won_srv, SUM(won_att) won_att, SUM(won_blk) won_blk,
+                        SUM(won_op_err) won_op_err FROM won GROUP BY team_id),
+        opp AS (
+            SELECT p.team_id, SUM(o.att_tot) opp_att_tot, SUM(o.att_pts) opp_att_pts,
+                   SUM(o.att_err + o.att_blo) opp_att_fail, SUM(o.srv_pts) opp_srv_pts,
+                   SUM(o.blk_pts) opp_blk_pts, SUM(ow.won_op_err) err_given,
+                   SUM(ow.won_srv + ow.won_att + ow.won_blk + ow.won_op_err) pts_lost
+            FROM pair p
+            JOIN team_game o ON o.game_id = p.game_id AND o.team_id = p.opp_id AND o.set_no = 0
+            JOIN won ow ON ow.game_id = p.game_id AND ow.team_id = p.opp_id
+            GROUP BY p.team_id),
+        sets AS (SELECT p.team_id, SUM(g.home_sets + g.away_sets) sets
+                 FROM pair p JOIN games g USING(game_id) GROUP BY p.team_id)
+        SELECT t.name, own.*, mine.won_srv, mine.won_att, mine.won_blk, mine.won_op_err,
+               mine.won_srv + mine.won_att + mine.won_blk + mine.won_op_err pts_won,
+               opp.opp_att_tot, opp.opp_att_pts, opp.opp_att_fail, opp.opp_srv_pts, opp.opp_blk_pts,
+               opp.err_given, opp.pts_lost, sets.sets
+        FROM teams t JOIN own USING(team_id) JOIN mine USING(team_id)
+        JOIN opp USING(team_id) JOIN sets USING(team_id)""")
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -183,11 +204,7 @@ class Handler(SimpleHTTPRequestHandler):
                 p = player(con, int(parts[1]))
                 return self.send_json(p) if p else self.send_json({"error": "introuvable"}, 404)
             if parts == ["teams"]:
-                won = team_points_won(con)
-                rows = teams(con)
-                for r in rows:
-                    r.update(won.get(r["team_id"], {}))
-                return self.send_json(rows)
+                return self.send_json(teams(con))
             if parts == ["meta"]:
                 return self.send_json(dict(con.execute("""
                     SELECT COUNT(*) games_total,

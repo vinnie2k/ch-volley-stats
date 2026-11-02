@@ -86,10 +86,10 @@
     <div class="top"><h1>LNA <span>Hommes</span> · statistiques 2026/27</h1><div class="meta" id="meta"></div></div>
     <nav id="tabs">
       <button data-tab="standings" class="on">Classement</button>
-      <button data-tab="leaders">Classements stats</button>
+      <button data-tab="leaders">Stats joueurs</button>
+      <button data-tab="teams">Stats équipes</button>
       <button data-tab="games">Matchs</button>
       <button data-tab="players">Joueurs</button>
-      <button data-tab="teams">Équipes</button>
     </nav>
   </div>
 </header>
@@ -361,21 +361,71 @@ async function openPlayer(id) {
   dlg.showModal();
 }
 
-// ---------- Équipes ----------
+// ---------- Stats équipes ----------
+// count : cumulable (total / par set / par match) ; asc : plus c'est bas, mieux c'est
+const TLEAD = [
+  { t: 'Points marqués', k: 'pts_won', count: true, sub: r => `${r.won_att} att · ${r.won_blk} contres · ${r.won_srv} aces · ${r.won_op_err} fautes adv.` },
+  { t: 'Différentiel de points', k: 'diff', count: true, signed: true, sub: r => `${r.pts_won} marqués · ${r.pts_lost} concédés` },
+  { t: 'Efficacité en attaque', k: 'att_eff', f: pct, sub: r => `${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.` },
+  { t: 'Réussite en attaque', k: 'att_pct', f: pct, sub: r => `${r.att_pts}/${r.att_tot}` },
+  { t: 'Points au contre', k: 'won_blk', count: true, sub: r => `${r.won_blk} contres` },
+  { t: 'Aces', k: 'won_srv', count: true, sub: r => `${r.won_srv} aces sur ${r.srv_tot} services` },
+  { t: 'Fautes de service', k: 'srv_err_pct', f: pct, asc: true, sub: r => `${r.srv_err} fautes sur ${r.srv_tot} services` },
+  { t: 'Réception positive', k: 'rec_pos_pct', f: pct, sub: r => `${r.rec_tot} réceptions · ${r.rec_err} fautes` },
+  { t: 'Réception parfaite', k: 'rec_exc_pct', f: pct, sub: r => `${r.rec_tot} réceptions` },
+  { t: 'Attaque adverse (défense + contre)', k: 'opp_att_eff', f: pct, asc: true, sub: r => `efficacité adverse · ${r.opp_att_tot} attaques subies` },
+  { t: 'Fautes directes offertes', k: 'err_given', count: true, asc: true, sub: r => `${r.err_given} points donnés à l'adversaire` },
+  { t: 'Points en break-point', k: 'bp', count: true, sub: r => `${r.bp} BP` },
+];
+const tstate = { mode: 'set' };
+
+async function renderTeams() {
+  const rows = await load('teams');
+  for (const r of rows) {
+    r.diff = r.pts_won - r.pts_lost;
+    r.srv_err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
+    r.opp_att_eff = r.opp_att_tot ? Math.round(100 * (r.opp_att_pts - r.opp_att_fail) / r.opp_att_tot) : null;
+  }
+  $('#view').innerHTML = `<div class="toolbar"><div class="chips" id="tmode">${Object.entries(MODES)
+      .map(([k, m]) => `<button class="chip ${tstate.mode === k ? 'on' : ''}" data-m="${k}">${m[0]}</button>`).join('')}</div></div>
+    <div class="leaders" id="tgrid"></div>
+    <div class="legend">Calculé sur les feuilles de statistiques importées. Points marqués et concédés = « balles » du classement officiel.
+      Fautes directes offertes = points marqués par l'adversaire sur nos fautes (service, attaque, filet…). Attaque adverse : plus c'est bas, meilleure est la défense.</div>
+    <h3>Tableau complet</h3><div class="card scroll" id="ttable"></div>`;
+  const draw = () => {
+    const [, suffix, denom] = MODES[tstate.mode];
+    $('#tgrid').innerHTML = TLEAD.map(c => {
+      const rate = c.count && denom;
+      const val = r => rate ? r[c.k] / Math.max(r[denom], 1) : r[c.k];
+      const f = rate ? (v => (c.signed && v > 0 ? '+' : '') + v.toFixed(denom === 'sets' ? 2 : 1)) : c.signed ? sign : (c.f || (v => v));
+      const list = rows.filter(r => r[c.k] != null).map(r => ({ r, v: val(r) })).sort((a, b) => (c.asc ? a.v - b.v : b.v - a.v));
+      const lo = Math.min(0, ...list.map(x => x.v)), hi = Math.max(...list.map(x => x.v), 1e-9);
+      // Barre : meilleure équipe = barre pleine, y compris pour les stats « plus bas = mieux »
+      const width = v => c.asc ? 100 * Math.min(...list.map(x => x.v)) / Math.max(v, 1e-9) : 100 * (v - lo) / Math.max(hi - lo, 1e-9);
+      return `<div class="card"><h2>${c.t}${c.count ? suffix : ''}</h2><div class="crit">${c.asc ? 'plus bas = mieux' : ''}</div>
+        ${list.map(({ r, v }, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openTeam(${r.team_id})">
+          <span class="rk">${i + 1}</span><span class="lname"><b>${esc(r.name)}</b></span><span class="lval">${f(v)}</span>
+          <span></span><span class="lsub" style="grid-column: 2 / 4">${c.sub(r)} · ${r.sets} sets · ${r.games} m.</span>
+          <span class="bar"><i style="width:${Math.max(0, width(v))}%"></i></span></div>`).join('')}</div>`;
+    }).join('');
+  };
+  document.querySelectorAll('#tmode .chip').forEach(c => c.onclick = () => {
+    tstate.mode = c.dataset.m; document.querySelectorAll('#tmode .chip').forEach(x => x.classList.toggle('on', x === c)); draw();
+  });
+  draw();
+  const sorted = rows.slice().sort((a, b) => b.att_eff - a.att_eff);
+  $('#ttable').innerHTML = `<table>
+    <thead>${groupHeader(TCOLS, 1)}<tr><th class="l">Équipe</th>${TCOLS.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
+    <tbody>${sorted.map(r => `<tr class="click" onclick="openTeam(${r.team_id})"><td class="l"><b>${esc(r.name)}</b></td>${TCOLS.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('')}
+    </tbody></table><div class="legend">Totaux. Cliquer une équipe pour voir ses joueurs.</div>`;
+}
 const TCOLS = [
-  ['games', 'MJ'], ['pts', 'Pts'], ['won_att', 'Att', null, 'Points gagnés par'], ['won_blk', 'Bloc'], ['won_srv', 'Ace'], ['won_op_err', 'Fautes adv.'],
+  ['games', 'MJ'], ['sets', 'Sets'], ['pts_won', 'Pts'], ['won_att', 'Att', null, 'Points gagnés par'], ['won_blk', 'Bloc'], ['won_srv', 'Ace'], ['won_op_err', 'Fautes adv.'],
   ['srv_tot', 'Tot', null, 'Service'], ['srv_err', 'Err'], ['srv_pts', 'Ace'],
   ['rec_tot', 'Tot', null, 'Réception'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pct], ['rec_exc_pct', 'Exc%', pct],
   ['att_tot', 'Tot', null, 'Attaque'], ['att_pts', 'Pts'], ['att_err', 'Err'], ['att_blo', 'Contrés'], ['att_pct', 'Pts%', pct], ['att_eff', 'Eff%', pct],
   ['blk_pts', 'Pts', null, 'Bloc'],
 ];
-async function renderTeams() {
-  const rows = (await load('teams')).slice().sort((a, b) => b.att_eff - a.att_eff);
-  $('#view').innerHTML = `<div class="card scroll"><table>
-    <thead>${groupHeader(TCOLS, 1)}<tr><th class="l">Équipe</th>${TCOLS.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r => `<tr class="click" onclick="openTeam(${r.team_id})"><td class="l"><b>${esc(r.name)}</b></td>${TCOLS.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('')}
-    </tbody></table><div class="legend">Totaux sur les matchs dont la feuille de statistiques est importée. Cliquer une équipe pour voir ses joueurs.</div></div>`;
-}
 function openTeam(id) {
   pstate.team = String(id); pstate.q = '';
   document.querySelector('#tabs [data-tab=players]').click();
