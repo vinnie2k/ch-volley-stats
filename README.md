@@ -56,5 +56,10 @@ Onglets : classement, matchs (avec feuille détaillée et lien vers le PDF offic
   remplacement (petit rectangle dessiné dans la colonne). Un libéro sans marque est compté sur tout
   le match s'il a des actions ; un autre joueur avec des actions mais sans marque (erreur de saisie)
   compte 1 set.
+- Phases de jeu (onglet Stats équipes) : lues dans le bas de la feuille Data Volley — side-out
+  (points marqués par action en réception), break-point (au service), 1re attaque après réception
+  positive / négative, contre-attaque, bilan par rotation. La feuille ne donne qu'un % de points par
+  tableau d'attaque : le nombre de points est reconstitué match par match (arrondi). Quelques feuilles
+  présentent de petits écarts internes (1 à 3 unités) que l'on reprend tels quels.
 - Classements par set / par match : un joueur doit avoir joué une part minimale des sets de son
   équipe (50 % par défaut, réglable dans l'onglet).

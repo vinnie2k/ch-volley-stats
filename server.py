@@ -120,6 +120,11 @@ def player(con, pid):
     return info
 
 
+PHASE_SUMS = ", ".join(
+    f"SUM({b}_tot) {b}_tot, SUM(ROUND({b}_pct * {b}_tot / 100.0)) {b}_pts, "
+    f"SUM({b}_err) {b}_err, SUM({b}_blo) {b}_blo" for b in ("pos", "neg", "dig"))
+
+
 def teams(con):
     # Les « Points won » n'existent que sur les lignes de set ; l'adversaire de chaque
     # match fournit les stats concédées (fautes données, attaque adverse, aces subis).
@@ -146,13 +151,20 @@ def teams(con):
             JOIN won ow ON ow.game_id = p.game_id AND ow.team_id = p.opp_id
             GROUP BY p.team_id),
         sets AS (SELECT p.team_id, SUM(g.home_sets + g.away_sets) sets
-                 FROM pair p JOIN games g USING(game_id) GROUP BY p.team_id)
+                 FROM pair p JOIN games g USING(game_id) GROUP BY p.team_id),
+        -- Phases de jeu (bas de la feuille). La feuille donne un % de points par tableau :
+        -- on reconstitue le nombre de points match par match avant de sommer.
+        ph AS (
+            SELECT team_id, SUM(rec) rec, SUM(so_pts) so_pts, SUM(srv) srv, SUM(bp_pts) bp_pts,
+                   {PHASE_SUMS},
+                   SUM(rot1) rot1, SUM(rot2) rot2, SUM(rot3) rot3, SUM(rot4) rot4, SUM(rot5) rot5, SUM(rot6) rot6
+            FROM team_phase GROUP BY team_id)
         SELECT t.name, own.*, mine.won_srv, mine.won_att, mine.won_blk, mine.won_op_err,
                mine.won_srv + mine.won_att + mine.won_blk + mine.won_op_err pts_won,
                opp.opp_att_tot, opp.opp_att_pts, opp.opp_att_fail, opp.opp_srv_pts, opp.opp_blk_pts,
-               opp.err_given, opp.pts_lost, sets.sets
+               opp.err_given, opp.pts_lost, sets.sets, ph.*
         FROM teams t JOIN own USING(team_id) JOIN mine USING(team_id)
-        JOIN opp USING(team_id) JOIN sets USING(team_id)""")
+        JOIN opp USING(team_id) JOIN sets USING(team_id) LEFT JOIN ph USING(team_id)""")
 
 
 class Handler(SimpleHTTPRequestHandler):

@@ -137,7 +137,69 @@ def parse(pdf_path):
                 played = n_sets if p["libero"] else 1
             p["sets_played"] = played
         teams.append({"players": players, "total": total, "sets": sets})
+    for team, phase in zip(teams, _phases(lines)):
+        team["phase"] = phase
     return teams
+
+
+# Bloc du bas de la feuille : équipe recevante à gauche, visiteuse à droite.
+# Les trois tableaux d'attaque du milieu ont l'en-tête « Err Blo Pts% Tot | Tot Pts% Blo Err ».
+ATTACK_BLOCKS = ["pos", "neg", "dig"]   # après réception positive, négative, sur défense
+SIDE_SPLIT_X = 300
+
+
+def _num(text):
+    t = text.strip("%")
+    if t in (".", ""):
+        return 0
+    try:
+        return int(t)
+    except ValueError:
+        return None
+
+
+def _phases(lines):
+    start = next((i for i, ln in enumerate(lines) if "KILL" in ln["text"]), None)
+    if start is None:
+        raise ValueError("section side-out / break-point introuvable")
+    region = lines[start:]
+    out = [{}, {}]
+
+    # Totaux : nombre placé juste après « Receptions », « SO », « Serve », « BP »
+    labels = {"Receptions": "rec", "SO": "so_pts", "Serve": "srv", "BP": "bp_pts"}
+    for ln in region:
+        ws = ln["words"]
+        for a, b in zip(ws, ws[1:]):
+            if a["text"] in labels and a["x0"] < 450 and _num(b["text"]) is not None and "." not in b["text"]:
+                out[0 if a["x0"] < SIDE_SPLIT_X else 1][labels[a["text"]]] = _num(b["text"])
+
+    # Tableaux d'attaque : en-tête puis première ligne de valeurs en dessous
+    headers = [ln for ln in region if [w["text"] for w in ln["words"] if 120 < w["x0"] < 340]
+               == ["Err", "Blo", "Pts%", "Tot", "Tot", "Pts%", "Blo", "Err"]]
+    if len(headers) != 3:
+        raise ValueError(f"{len(headers)} tableaux d'attaque au lieu de 3")
+    keys = [(0, "err"), (0, "blo"), (0, "pct"), (0, "tot"), (1, "tot"), (1, "pct"), (1, "blo"), (1, "err")]
+    for block, hdr in zip(ATTACK_BLOCKS, headers):
+        cols = [_center(w) for w in hdr["words"] if 120 < w["x0"] < 340]
+        vals = next(ln for ln in region if ln["top"] > hdr["top"] + 3
+                    and sum(120 < w["x0"] < 340 for w in ln["words"]) >= 4)
+        for side, k in keys:
+            out[side][f"{block}_{k}"] = 0
+        for w in vals["words"]:
+            if 120 < w["x0"] < 340:
+                i = min(range(8), key=lambda j: abs(cols[j] - _center(w)))
+                side, k = keys[i]
+                out[side][f"{block}_{k}"] = _num(w["text"])
+
+    # Bilan par rotation (« S in » = position du passeur, « Diff » = points gagnés − perdus)
+    for ln in region:
+        ws = ln["words"]
+        for i, (a, b) in enumerate(zip(ws, ws[1:])):
+            side = 0 if a["x0"] < 35 else 1 if 405 < a["x0"] < 420 else None
+            if side is not None and a["text"] in "123456" and len(a["text"]) == 1 \
+                    and b["x0"] - a["x1"] < 20 and re.fullmatch(r"[+-]?\d+|\.", b["text"]):
+                out[side][f"rot{a['text']}"] = _num(b["text"])
+    return out
 
 
 if __name__ == "__main__":

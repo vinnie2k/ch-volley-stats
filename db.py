@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS team_game (
     blk_pts      INTEGER,
     PRIMARY KEY (game_id, team_id, set_no)
 );
+
+-- Bas de la feuille officielle : phases de jeu et bilan par rotation (set_no 0 uniquement)
+CREATE TABLE IF NOT EXISTS team_phase (
+    game_id   INTEGER NOT NULL REFERENCES games(game_id),
+    team_id   INTEGER NOT NULL,
+    rec       INTEGER, so_pts INTEGER,   -- réceptions / points marqués en side-out
+    srv       INTEGER, bp_pts INTEGER,   -- services / points marqués en break-point
+    pos_tot INTEGER, pos_pct INTEGER, pos_err INTEGER, pos_blo INTEGER,   -- 1re attaque après réception positive
+    neg_tot INTEGER, neg_pct INTEGER, neg_err INTEGER, neg_blo INTEGER,   -- 1re attaque après réception négative
+    dig_tot INTEGER, dig_pct INTEGER, dig_err INTEGER, dig_blo INTEGER,   -- attaque sur défense (contre-attaque)
+    rot1 INTEGER, rot2 INTEGER, rot3 INTEGER, rot4 INTEGER, rot5 INTEGER, rot6 INTEGER,
+    PRIMARY KEY (game_id, team_id)
+);
 """
 
 

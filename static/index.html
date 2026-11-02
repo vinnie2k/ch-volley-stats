@@ -77,6 +77,7 @@
   .lrow .bar { grid-column: 2 / 4; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .lrow .bar i { display: block; height: 100%; background: var(--accent); }
   .lrow.first .lval { color: var(--accent); }
+  td.heat { background: color-mix(in srgb, var(--c) calc(var(--a) * 100%), transparent); font-weight: 600; }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
 </style>
 </head>
@@ -375,7 +376,11 @@ const TLEAD = [
   { t: 'Réception parfaite', k: 'rec_exc_pct', f: pct, sub: r => `${r.rec_tot} réceptions` },
   { t: 'Attaque adverse (défense + contre)', k: 'opp_att_eff', f: pct, asc: true, sub: r => `efficacité adverse · ${r.opp_att_tot} attaques subies` },
   { t: 'Fautes directes offertes', k: 'err_given', count: true, asc: true, sub: r => `${r.err_given} points donnés à l'adversaire` },
-  { t: 'Points en break-point', k: 'bp', count: true, sub: r => `${r.bp} BP` },
+  { t: 'Side-out', k: 'so_pct', f: pct, sub: r => `${r.so_pts} pts sur ${r.rec} réceptions · 1 pt toutes les ${(r.rec / r.so_pts).toFixed(2)} réc.` },
+  { t: 'Break-point', k: 'bp_pct', f: pct, sub: r => `${r.bp_pts} pts sur ${r.srv} services · 1 pt tous les ${(r.srv / r.bp_pts).toFixed(2)} serv.` },
+  { t: 'Attaque après réception positive', k: 'pos_eff', f: pct, sub: r => `eff. · ${r.pos_pts} pts / ${r.pos_tot} att. (${pct(r.pos_kill)})` },
+  { t: 'Attaque après réception négative', k: 'neg_eff', f: pct, sub: r => `eff. · ${r.neg_pts} pts / ${r.neg_tot} att. (${pct(r.neg_kill)})` },
+  { t: 'Contre-attaque (attaque sur défense)', k: 'dig_eff', f: pct, sub: r => `eff. · ${r.dig_pts} pts / ${r.dig_tot} att. (${pct(r.dig_kill)})` },
 ];
 const tstate = { mode: 'set' };
 
@@ -385,14 +390,22 @@ async function renderTeams() {
     r.diff = r.pts_won - r.pts_lost;
     r.srv_err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
     r.opp_att_eff = r.opp_att_tot ? Math.round(100 * (r.opp_att_pts - r.opp_att_fail) / r.opp_att_tot) : null;
+    r.so_pct = r.rec ? Math.round(100 * r.so_pts / r.rec) : null;
+    r.bp_pct = r.srv ? Math.round(100 * r.bp_pts / r.srv) : null;
+    for (const b of ['pos', 'neg', 'dig']) {
+      const tot = r[b + '_tot'];
+      r[b + '_kill'] = tot ? Math.round(100 * r[b + '_pts'] / tot) : null;
+      r[b + '_eff'] = tot ? Math.round(100 * (r[b + '_pts'] - r[b + '_err'] - r[b + '_blo']) / tot) : null;
+    }
   }
   $('#view').innerHTML = `<div class="toolbar"><div class="chips" id="tmode">${Object.entries(MODES)
       .map(([k, m]) => `<button class="chip ${tstate.mode === k ? 'on' : ''}" data-m="${k}">${m[0]}</button>`).join('')}</div></div>
     <div class="leaders" id="tgrid"></div>
     <div class="legend">Calculé sur les feuilles de statistiques importées. Points marqués et concédés = « balles » du classement officiel.
       Fautes directes offertes = points marqués par l'adversaire sur nos fautes (service, attaque, filet…). Attaque adverse : plus c'est bas, meilleure est la défense.</div>
+    <h3>Bilan par rotation</h3><div class="card scroll" id="trot"></div>
     <h3>Tableau complet</h3><div class="card scroll" id="ttable"></div>`;
-  const draw = () => {
+  let draw = () => {
     const [, suffix, denom] = MODES[tstate.mode];
     $('#tgrid').innerHTML = TLEAD.map(c => {
       const rate = c.count && denom;
@@ -412,6 +425,25 @@ async function renderTeams() {
   document.querySelectorAll('#tmode .chip').forEach(c => c.onclick = () => {
     tstate.mode = c.dataset.m; document.querySelectorAll('#tmode .chip').forEach(x => x.classList.toggle('on', x === c)); draw();
   });
+  const drawRot = () => {
+    const [, , denom] = MODES[tstate.mode];
+    const v = (r, i) => denom ? r['rot' + i] / Math.max(r[denom], 1) : r['rot' + i];
+    const fmt = x => (x > 0 ? '+' : '') + (denom ? x.toFixed(denom === 'sets' ? 2 : 1) : x);
+    const peak = Math.max(...rows.flatMap(r => [1, 2, 3, 4, 5, 6].map(i => Math.abs(v(r, i)))), 1e-9);
+    const sortedRot = rows.slice().sort((a, b) => b.diff - a.diff);
+    $('#trot').innerHTML = `<table><thead><tr><th class="l">Équipe</th>${[1, 2, 3, 4, 5, 6].map(i => `<th>P${i}</th>`).join('')}<th>Meilleure</th><th>Pire</th></tr></thead>
+      <tbody>${sortedRot.map(r => {
+        const vals = [1, 2, 3, 4, 5, 6].map(i => v(r, i));
+        const best = vals.indexOf(Math.max(...vals)) + 1, worst = vals.indexOf(Math.min(...vals)) + 1;
+        return `<tr class="click" onclick="openTeam(${r.team_id})"><td class="l"><b>${esc(r.name)}</b></td>
+          ${vals.map(x => `<td class="heat" style="--a:${(Math.abs(x) / peak * 0.55).toFixed(2)};--c:var(${x >= 0 ? '--good' : '--bad'})">${fmt(x)}</td>`).join('')}
+          <td>P${best}</td><td>P${worst}</td></tr>`;
+      }).join('')}</tbody></table>
+      <div class="legend">Différentiel de points (gagnés − perdus) quand le passeur est en position P1 à P6, tel que publié sur la feuille Data Volley${MODES[tstate.mode][1]}.
+        Le total des rotations peut s'écarter de quelques points du différentiel du match : c'est le décompte de la feuille.</div>`;
+  };
+  const redraw = draw;
+  draw = () => { redraw(); drawRot(); };
   draw();
   const sorted = rows.slice().sort((a, b) => b.att_eff - a.att_eff);
   $('#ttable').innerHTML = `<table>

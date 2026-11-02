@@ -126,6 +126,7 @@ def import_stats(con, game_id, home_id, away_id, pdf_path):
     teams = parse_stats.parse(pdf_path)
     con.execute("DELETE FROM player_game WHERE game_id=?", (game_id,))
     con.execute("DELETE FROM team_game WHERE game_id=?", (game_id,))
+    con.execute("DELETE FROM team_phase WHERE game_id=?", (game_id,))
     for team, team_id in zip(teams, (home_id, away_id)):  # le PDF liste l'équipe recevante en premier
         for p in team["players"]:
             p["name"] = NAME_FIXES.get(p["name"], p["name"])
@@ -135,6 +136,11 @@ def import_stats(con, game_id, home_id, away_id, pdf_path):
             cols = ["game_id", "player_id", "team_id"] + [k for k in p if k != "name"]
             con.execute(f"INSERT INTO player_game({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
                         [game_id, pid, team_id] + [p[k] for k in p if k != "name"])
+        ph = team.get("phase") or {}
+        if ph:
+            cols = ["game_id", "team_id"] + list(ph)
+            con.execute(f"INSERT INTO team_phase({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                        [game_id, team_id] + list(ph.values()))
         for set_no, row in [(0, team["total"] or {})] + sorted(team["sets"].items()):
             cols = ["game_id", "team_id", "set_no"] + list(row)
             con.execute(f"INSERT INTO team_game({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
