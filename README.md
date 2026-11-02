@@ -18,7 +18,7 @@ python scraper.py
 
 - Récupère la liste des matchs (résultats, sets, salle, arbitres) de la saison.
 - Télécharge la feuille de stats de chaque match joué dans `data/pdf/<id>.pdf` (une seule fois).
-- Importe les stats joueur par joueur et équipe par set dans `data/lna.db`.
+- Importe les stats joueur par joueur et équipe par set dans `data/ch-volley-stats.db`.
 
 À relancer après chaque journée : seuls les nouveaux matchs sont traités.
 Options : `--season 2027 --league <id>` pour une autre saison (l'id de ligue est dans l'URL du

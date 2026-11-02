@@ -1,7 +1,7 @@
 services:
-  lna-stats:
+  ch-volley-stats:
     build: .
-    container_name: lna-stats
+    container_name: ch-volley-stats
     volumes:
       - ./data:/app/data
     environment:

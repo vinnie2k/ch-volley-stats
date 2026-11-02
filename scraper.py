@@ -17,7 +17,7 @@ import positions
 
 BASE = "https://www.volleyball.ch"
 PDF_DIR = Path(__file__).parent / "data" / "pdf"
-UA = "Mozilla/5.0 (lna-stats; consultation statistiques LNA)"
+UA = "Mozilla/5.0 (ch-volley-stats; consultation statistiques LNA)"
 # Identifiant de la « server action » Next.js qui renvoie la liste des matchs.
 # Il change quand le site est redéployé : on le redécouvre alors automatiquement.
 GAMES_ACTION = "4f4a04331e8b7f7726ca7b74caf8b2e1358570d4"

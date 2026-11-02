@@ -255,7 +255,7 @@ def main():
     if a.update_hours:
         hours = [int(h) for h in a.update_hours.split(",")]
         threading.Thread(target=update_loop, args=(hours,), daemon=True).start()
-    print(f"LNA stats : http://localhost:{a.port}", flush=True)
+    print(f"ch-volley-stats : http://localhost:{a.port}", flush=True)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
 

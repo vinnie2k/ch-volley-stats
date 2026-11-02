@@ -17,7 +17,7 @@ import urllib.request
 from collections import Counter, defaultdict
 
 BASE = "https://www.volleyball.ch"
-UA = "Mozilla/5.0 (lna-stats; consultation statistiques LNA)"
+UA = "Mozilla/5.0 (ch-volley-stats; consultation statistiques LNA)"
 LABELS = {"pass": "Passeur", "diagonal": "Diagonal", "out": "Ailier", "middle": "Central", "libero": "Libéro"}
 
 

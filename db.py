@@ -2,7 +2,7 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data" / "lna.db"
+DB_PATH = Path(__file__).parent / "data" / "ch-volley-stats.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS teams (
