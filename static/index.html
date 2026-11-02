@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LNA Hommes – Statistiques</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #6a7380; --line: #e3e6ea;
+    --accent: #d6001c; --accent-soft: #fde8eb; --good: #1a7f4b; --bad: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --card: #1b1e23; --ink: #e8eaed; --muted: #98a1ad; --line: #2c3138;
+            --accent: #ff4d5e; --accent-soft: #3a1d22; --good: #4cc38a; --bad: #ff7a70; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+  .top { display: flex; align-items: baseline; gap: 12px; padding-top: 14px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  h1 span { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 12px; }
+  nav { display: flex; gap: 4px; margin-top: 8px; overflow-x: auto; }
+  nav button { border: 0; background: none; padding: 10px 14px; font: inherit; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  main { padding: 20px 0 40px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  select, input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 5px 12px; cursor: pointer; font: inherit; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+  th.sort { cursor: pointer; user-select: none; }
+  th.sort:hover { color: var(--ink); }
+  th.active { color: var(--accent); }
+  th.grp { text-align: center; border-bottom: 2px solid var(--line); }
+  td.l, th.l { text-align: left; }
+  tbody tr:hover { background: var(--accent-soft); }
+  tr.click { cursor: pointer; }
+  .num { color: var(--muted); }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .muted { color: var(--muted); }
+  .games { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .game { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
+  .game:hover { border-color: var(--accent); }
+  .game .date { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .game .row { display: flex; justify-content: space-between; gap: 8px; }
+  .game .win { font-weight: 700; }
+  .game .sets { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); margin-left: 6px; }
+  .week { margin: 18px 0 8px; font-weight: 600; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  dialog { border: 0; border-radius: 12px; padding: 0; width: min(1100px, 96vw); max-height: 92vh; background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg-head { display: flex; justify-content: space-between; align-items: start; padding: 16px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--card); z-index: 2; }
+  .dlg-body { padding: 16px 18px; }
+  .x { border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
+  .score { font-size: 26px; font-weight: 700; }
+  h3 { margin: 18px 0 8px; font-size: 15px; }
+  a { color: var(--accent); }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top"><h1>LNA <span>Hommes</span> · statistiques 2026/27</h1><div class="meta" id="meta"></div></div>
+    <nav id="tabs">
+      <button data-tab="standings" class="on">Classement</button>
+      <button data-tab="games">Matchs</button>
+      <button data-tab="players">Joueurs</button>
+      <button data-tab="teams">Équipes</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="view"></main>
+<dialog id="dlg"><div class="dlg-head"><div id="dlg-title"></div><button class="x" onclick="dlg.close()" aria-label="Fermer">×</button></div><div class="dlg-body" id="dlg-body"></div></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = p => fetch('api/' + p).then(r => r.json());
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtDate = d => new Date(d.replace(' ', 'T')).toLocaleDateString('fr-CH', {weekday: 'short', day: 'numeric', month: 'short'});
+const fmtTime = d => d.slice(11, 16);
+const pct = v => v == null ? '–' : v + '%';
+// % affiché seulement s'il y a des tentatives (sinon le PDF indique 0 %)
+const pctIf = tot => (v, r) => r && !r[tot] ? '<span class="muted">·</span>' : pct(v);
+const sign = v => v == null ? '–' : `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${v}</span>`;
+const dash = v => v == null || v === 0 ? '<span class="muted">·</span>' : v;
+let cache = {};
+const load = async k => cache[k] ??= await api(k);
+
+// ---------- Onglets ----------
+const views = { standings: renderStandings, games: renderGames, players: renderPlayers, teams: renderTeams };
+$('#tabs').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  location.hash = b.dataset.tab;
+  views[b.dataset.tab]();
+};
+
+// ---------- Classement ----------
+async function renderStandings() {
+  const rows = await load('standings');
+  $('#view').innerHTML = `<div class="card scroll"><table>
+    <thead><tr><th>#</th><th class="l">Équipe</th><th>J</th><th>Pts</th><th>V</th><th>D</th><th>Sets</th><th>Q sets</th><th>Balles</th><th>Q balles</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="click" onclick="openTeam(${r.team_id})">
+      <td class="num">${i + 1}</td><td class="l"><b>${esc(r.name)}</b></td><td>${r.games}</td><td><b>${r.pts}</b></td>
+      <td>${r.w}</td><td>${r.l}</td><td>${r.sets_w}:${r.sets_l}</td><td>${(r.sets_w / Math.max(r.sets_l, 1)).toFixed(2)}</td>
+      <td>${r.balls_w}:${r.balls_l}</td><td>${(r.balls_w / Math.max(r.balls_l, 1)).toFixed(2)}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="legend">Calculé à partir des résultats importés. 3-0 / 3-1 : 3 pts · 3-2 : 2 pts · 2-3 : 1 pt.</div></div>`;
+}
+
+// ---------- Matchs ----------
+async function renderGames() {
+  const games = await load('games');
+  const weeks = {};
+  for (const g of games) {
+    const d = new Date(g.play_date.slice(0, 10)); const monday = new Date(d); monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    (weeks[monday.toISOString().slice(0, 10)] ??= []).push(g);
+  }
+  const played = g => g.home_sets != null;
+  $('#view').innerHTML = `<div class="toolbar"><div class="chips">
+      <button class="chip on" data-f="all">Tous</button><button class="chip" data-f="played">Joués</button><button class="chip" data-f="next">À venir</button></div></div>
+    <div id="glist"></div>`;
+  const draw = f => {
+    $('#glist').innerHTML = Object.entries(weeks).map(([w, gs]) => {
+      gs = gs.filter(g => f === 'all' || (f === 'played') === played(g));
+      if (!gs.length) return '';
+      return `<div class="week">Semaine du ${new Date(w).toLocaleDateString('fr-CH', {day: 'numeric', month: 'long'})}</div><div class="games">${gs.map(g => {
+        const sets = JSON.parse(g.set_results || '[]');
+        const hw = g.home_sets > g.away_sets;
+        return `<div class="game" onclick="${played(g) ? `openGame(${g.game_id})` : ''}">
+          <div class="date">${fmtDate(g.play_date)} · ${fmtTime(g.play_date)} · ${esc(g.city || '')}${g.stats_status === 'ok' ? '<span class="tag">stats</span>' : ''}</div>
+          <div class="row ${played(g) && hw ? 'win' : ''}"><span>${esc(g.home)}</span><span>${g.home_sets ?? ''}</span></div>
+          <div class="row ${played(g) && !hw ? 'win' : ''}"><span>${esc(g.away)}</span><span>${g.away_sets ?? ''}</span></div>
+          ${sets.length ? `<div class="sets">${sets.map(s => s.join('-')).join(' · ')}</div>` : ''}</div>`;
+      }).join('')}</div>`;
+    }).join('') || '<div class="empty">Aucun match</div>';
+  };
+  document.querySelectorAll('.chip[data-f]').forEach(c => c.onclick = () => {
+    document.querySelectorAll('.chip[data-f]').forEach(x => x.classList.toggle('on', x === c)); draw(c.dataset.f);
+  });
+  draw('all');
+}
+
+// Colonnes du tableau de stats d'un match (feuille officielle)
+const BOX = [
+  ['pts_tot', 'Pts'], ['bp', 'BP'], ['wl', 'V-D', sign],
+  ['srv_tot', 'Tot', null, 'Service'], ['srv_err', 'Err'], ['srv_pts', 'Ace'],
+  ['rec_tot', 'Tot', null, 'Réception'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pctIf('rec_tot')], ['rec_exc_pct', 'Exc%', pctIf('rec_tot')],
+  ['att_tot', 'Tot', null, 'Attaque'], ['att_err', 'Err'], ['att_blo', 'Blo'], ['att_pts', 'Pts'], ['att_pct', 'Pts%', pctIf('att_tot')],
+  ['blk_pts', 'Pts', null, 'Bloc'],
+];
+function groupHeader(cols, lead) {
+  const groups = []; for (const c of cols) { if (c[3] || !groups.length) groups.push([c[3] || '', 0]); groups.at(-1)[1]++; }
+  return `<tr><th colspan="${lead}"></th>${groups.map(([n, k]) => `<th class="grp" colspan="${k}">${n}</th>`).join('')}</tr>`;
+}
+
+async function openGame(id) {
+  const g = await api('games/' + id);
+  const sets = JSON.parse(g.set_results || '[]');
+  $('#dlg-title').innerHTML = `<div class="muted">${fmtDate(g.play_date)} ${fmtTime(g.play_date)} · ${esc(g.hall || '')}, ${esc(g.city || '')}</div>
+    <div class="score">${esc(g.home)} ${g.home_sets} : ${g.away_sets} ${esc(g.away)}</div>
+    <div class="muted">${sets.map(s => s.join('-')).join(' · ')}${g.referees ? ' · Arbitres : ' + esc(g.referees) : ''}</div>`;
+  if (g.stats_status !== 'ok') {
+    $('#dlg-body').innerHTML = '<div class="empty">Feuille de statistiques pas encore disponible.</div>'; return dlg.showModal();
+  }
+  const side = (tid, name) => {
+    const ps = g.players.filter(p => p.team_id === tid && (p.pts_tot || p.srv_tot || p.rec_tot || p.att_tot || p.sets_started));
+    const tot = g.team_sets.find(t => t.team_id === tid && t.set_no === 0);
+    const perSet = g.team_sets.filter(t => t.team_id === tid && t.set_no > 0);
+    return `<h3>${esc(name)}</h3><div class="scroll"><table>
+      <thead>${groupHeader(BOX, 4)}<tr><th>N°</th><th class="l">Joueur</th><th>Sets</th><th>Note</th>${BOX.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
+      <tbody>${ps.map(p => `<tr class="click" onclick="openPlayer(${p.player_id})"><td class="num">${p.number}${p.libero ? ' L' : ''}</td>
+        <td class="l">${esc(p.name)}</td><td>${p.sets_started || '<span class="muted">·</span>'}</td><td>${p.vote ?? '<span class="muted">·</span>'}</td>
+        ${BOX.map(c => `<td>${(c[2] || dash)(p[c[0]], p)}</td>`).join('')}</tr>`).join('')}
+      <tr><td></td><td class="l"><b>Total</b></td><td></td><td></td>${BOX.map(c => `<td><b>${(c[2] || (v => v ?? 0))(tot[c[0]])}</b></td>`).join('')}</tr>
+      ${perSet.map(s => `<tr class="muted"><td></td><td class="l">Set ${s.set_no} <span class="muted">(pts : ${s.won_srv} serv · ${s.won_att} att · ${s.won_blk} bloc · ${s.won_op_err} fautes adv.)</span></td><td></td><td></td>
+        <td></td><td></td><td></td>${BOX.slice(3).map(c => `<td>${(c[2] || dash)(s[c[0]], s)}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>`;
+  };
+  $('#dlg-body').innerHTML = side(g.home_team_id, g.home) + side(g.away_team_id, g.away) +
+    `<div class="legend">BP : points en break-point · V-D : points gagnés − perdus · Pos% : réceptions positives (#+) · Exc% : parfaites (#) · Blo : attaques contrées.
+     <a href="pdf/${g.game_id}" target="_blank">Feuille officielle (PDF)</a></div>`;
+  dlg.showModal();
+}
+
+// ---------- Joueurs ----------
+const PCOLS = {
+  general: [['games', 'MJ'], ['sets_started', 'Sets tit.'], ['pts', 'Pts'], ['pts_g', 'Pts/m'], ['bp', 'BP'], ['wl', 'V-D', sign], ['att_pts', 'Att'], ['srv_pts', 'Aces'], ['blk_pts', 'Blocs'], ['vote', 'Note']],
+  attack: [['games', 'MJ'], ['att_tot', 'Tot'], ['att_pts', 'Pts'], ['att_err', 'Err'], ['att_blo', 'Contrés'], ['att_pct', 'Pts%', pct], ['att_eff', 'Eff%', pct]],
+  serve: [['games', 'MJ'], ['srv_tot', 'Tot'], ['srv_pts', 'Aces'], ['srv_err', 'Err'], ['ace_pct', 'Ace%', pct], ['err_pct', 'Err%', pct]],
+  reception: [['games', 'MJ'], ['rec_tot', 'Tot'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pct], ['rec_exc_pct', 'Exc%', pct], ['rec_err_pct', 'Err%', pct]],
+  block: [['games', 'MJ'], ['sets_started', 'Sets tit.'], ['blk_pts', 'Blocs'], ['blk_g', 'Blocs/m']],
+};
+const PMIN = { attack: ['att_tot', 20], serve: ['srv_tot', 15], reception: ['rec_tot', 20] };
+const PDEF = { general: 'pts', attack: 'att_eff', serve: 'srv_pts', reception: 'rec_pos_pct', block: 'blk_pts' };
+const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true };
+
+async function renderPlayers() {
+  const [rows, teams] = await Promise.all([load('players'), load('standings')]);
+  for (const r of rows) {
+    r.pts_g = +(r.pts / r.games).toFixed(1); r.blk_g = +(r.blk_pts / r.games).toFixed(2);
+    r.ace_pct = r.srv_tot ? Math.round(100 * r.srv_pts / r.srv_tot) : null;
+    r.err_pct = r.srv_tot ? Math.round(100 * r.srv_err / r.srv_tot) : null;
+    r.rec_err_pct = r.rec_tot ? Math.round(100 * r.rec_err / r.rec_tot) : null;
+  }
+  $('#view').innerHTML = `<div class="card"><div class="toolbar">
+      <div class="chips">${[['general', 'Général'], ['attack', 'Attaque'], ['serve', 'Service'], ['reception', 'Réception'], ['block', 'Bloc']]
+        .map(([k, n]) => `<button class="chip ${pstate.cat === k ? 'on' : ''}" data-c="${k}">${n}</button>`).join('')}</div>
+      <select id="pteam"><option value="">Toutes les équipes</option>${teams.map(t => `<option value="${t.team_id}" ${pstate.team == t.team_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+      <input id="pq" placeholder="Rechercher un joueur" value="${esc(pstate.q)}">
+      <label class="muted" id="pminl"><input type="checkbox" id="pmin" ${pstate.min ? 'checked' : ''}> volume minimum</label>
+    </div><div class="scroll" id="ptable"></div></div>`;
+  const draw = () => {
+    const cols = PCOLS[pstate.cat], min = PMIN[pstate.cat];
+    $('#pminl').style.display = min ? '' : 'none';
+    let list = rows.filter(r => (!pstate.team || r.team_id == pstate.team) && r.name.toLowerCase().includes(pstate.q.toLowerCase()));
+    if (min && pstate.min) list = list.filter(r => r[min[0]] >= min[1]);
+    list.sort((a, b) => ((a[pstate.sort] ?? -1e9) - (b[pstate.sort] ?? -1e9)) * pstate.dir || a.name.localeCompare(b.name));
+    $('#ptable').innerHTML = `<table><thead><tr><th>#</th><th class="l">Joueur</th><th class="l">Équipe</th>
+      ${cols.map(c => `<th class="sort ${pstate.sort === c[0] ? 'active' : ''}" data-s="${c[0]}">${c[1]}${pstate.sort === c[0] ? (pstate.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${list.map((r, i) => `<tr class="click" onclick="openPlayer(${r.player_id})"><td class="num">${i + 1}</td>
+        <td class="l"><b>${esc(r.name)}</b> <span class="muted">${r.number ?? ''}${r.libero ? ' L' : ''}</span></td><td class="l muted">${esc(r.team)}</td>
+        ${cols.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="20" class="empty">Aucun joueur</td></tr>`}
+      </tbody></table>
+      ${min && pstate.min ? `<div class="legend">Volume minimum : ${min[1]} ${({att_tot: 'attaques', srv_tot: 'services', rec_tot: 'réceptions'})[min[0]]}.</div>` : ''}
+      <div class="legend">Eff% attaque = (points − erreurs − contrés) / tentatives. Pos%/Exc% réception pondérés par le nombre de réceptions.</div>`;
+    document.querySelectorAll('#ptable th.sort').forEach(th => th.onclick = () => {
+      pstate.dir = pstate.sort === th.dataset.s ? -pstate.dir : -1; pstate.sort = th.dataset.s; draw();
+    });
+  };
+  document.querySelectorAll('.chip[data-c]').forEach(c => c.onclick = () => {
+    pstate.cat = c.dataset.c; pstate.sort = PDEF[pstate.cat]; pstate.dir = -1;
+    document.querySelectorAll('.chip[data-c]').forEach(x => x.classList.toggle('on', x === c)); draw();
+  });
+  $('#pteam').onchange = e => { pstate.team = e.target.value; draw(); };
+  $('#pq').oninput = e => { pstate.q = e.target.value; draw(); };
+  $('#pmin').onchange = e => { pstate.min = e.target.checked; draw(); };
+  draw();
+}
+
+async function openPlayer(id) {
+  const p = await api('players/' + id);
+  $('#dlg-title').innerHTML = `<div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}</div>`;
+  const tot = k => p.games.reduce((s, g) => s + (g[k] || 0), 0);
+  $('#dlg-body').innerHTML = `<div class="scroll"><table>
+    <thead>${groupHeader(BOX, 4)}<tr><th class="l">Date</th><th class="l">Adversaire</th><th>Sets</th><th>Note</th>${BOX.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
+    <tbody>${p.games.map(g => {
+      const home = g.home_team_id === g.team_id, my = home ? g.home_sets : g.away_sets, their = home ? g.away_sets : g.home_sets;
+      return `<tr class="click" onclick="openGame(${g.game_id})"><td class="l">${fmtDate(g.play_date)}</td>
+        <td class="l">${home ? '' : '@ '}${esc(g.opponent)} <span class="${my > their ? 'pos' : 'neg'}">${my}-${their}</span></td>
+        <td>${g.sets_started || '<span class="muted">·</span>'}</td><td>${g.vote ?? '<span class="muted">·</span>'}</td>
+        ${BOX.map(c => `<td>${(c[2] || dash)(g[c[0]], g)}</td>`).join('')}</tr>`;
+    }).join('')}
+    <tr><td class="l"><b>Total</b></td><td></td><td><b>${tot('sets_started')}</b></td><td></td>${BOX.map(c => `<td><b>${c[2] ? '' : tot(c[0])}</b></td>`).join('')}</tr>
+    </tbody></table></div>`;
+  dlg.showModal();
+}
+
+// ---------- Équipes ----------
+const TCOLS = [
+  ['games', 'MJ'], ['pts', 'Pts'], ['won_att', 'Att', null, 'Points gagnés par'], ['won_blk', 'Bloc'], ['won_srv', 'Ace'], ['won_op_err', 'Fautes adv.'],
+  ['srv_tot', 'Tot', null, 'Service'], ['srv_err', 'Err'], ['srv_pts', 'Ace'],
+  ['rec_tot', 'Tot', null, 'Réception'], ['rec_err', 'Err'], ['rec_pos_pct', 'Pos%', pct], ['rec_exc_pct', 'Exc%', pct],
+  ['att_tot', 'Tot', null, 'Attaque'], ['att_pts', 'Pts'], ['att_err', 'Err'], ['att_blo', 'Contrés'], ['att_pct', 'Pts%', pct], ['att_eff', 'Eff%', pct],
+  ['blk_pts', 'Pts', null, 'Bloc'],
+];
+async function renderTeams() {
+  const rows = (await load('teams')).slice().sort((a, b) => b.att_eff - a.att_eff);
+  $('#view').innerHTML = `<div class="card scroll"><table>
+    <thead>${groupHeader(TCOLS, 1)}<tr><th class="l">Équipe</th>${TCOLS.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr class="click" onclick="openTeam(${r.team_id})"><td class="l"><b>${esc(r.name)}</b></td>${TCOLS.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('')}
+    </tbody></table><div class="legend">Totaux sur les matchs dont la feuille de statistiques est importée. Cliquer une équipe pour voir ses joueurs.</div></div>`;
+}
+function openTeam(id) {
+  pstate.team = String(id); pstate.q = '';
+  document.querySelector('#tabs [data-tab=players]').click();
+}
+
+// ---------- Démarrage ----------
+api('meta').then(m => {
+  $('#meta').textContent = `${m.games_with_stats} feuilles de stats importées · ${m.games_played}/${m.games_total} matchs joués` +
+    (m.last_game ? ` · dernier match : ${fmtDate(m.last_game)}` : '');
+});
+const start = location.hash.slice(1);
+(document.querySelector(`#tabs [data-tab="${start}"]`) || document.querySelector('#tabs button')).click();
+</script>
+</body>
+</html>

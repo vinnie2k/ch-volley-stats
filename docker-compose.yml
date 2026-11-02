@@ -1,0 +1,15 @@
+services:
+  lna-stats:
+    build: .
+    container_name: lna-stats
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Zurich
+    networks:
+      - proxy
+    restart: unless-stopped
+
+networks:
+  proxy:
+    external: true
