@@ -154,6 +154,8 @@ const fmtTime = d => d.slice(11, 16);
 const pct = v => v == null ? '–' : v + '%';
 const POS = { pass: ['Passeur', 'Setter'], diagonal: ['Diagonal', 'Opposite'], out: ['Ailier', 'Outside hitter'],
               middle: ['Central', 'Middle blocker'], libero: ['Libéro', 'Libero'] };
+const POS_PLURAL = { pass: ['passeurs', 'setters'], diagonal: ['diagonaux', 'opposites'], out: ['ailiers', 'outside hitters'],
+                     middle: ['centraux', 'middle blockers'], libero: ['libéros', 'liberos'] };
 const posTag = r => r.position ? `<span class="postag${r.position_src === 'déduit' ? ' guess' : ''}"
   title="${r.position_src === 'déduit' ? L('Poste déduit des feuilles de match (absent de l’effectif officiel)', 'Position inferred from the match sheets (missing from the official roster)')
                                         : L('Poste selon l’effectif officiel', 'Position from the official roster')}">${tr(POS[r.position])}</span>` : '';
@@ -313,28 +315,29 @@ const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: tru
 const VOL_SHARE = 0.4;
 const fix = d => v => v == null ? '–' : v.toFixed(d);
 const LEADERS = [
-  { t: ['Points', 'Points'], k: 'pts', count: true, sub: r => L(`${r.pts} pts : ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres`, `${r.pts} pts: ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} blocks`) },
-  { t: ['Points en attaque', 'Attack points'], k: 'att_pts', count: true, sub: r => L(`${r.att_pts} pts sur ${r.att_tot} attaques`, `${r.att_pts} pts from ${r.att_tot} attacks`) },
-  { t: ['Efficacité en attaque', 'Attack efficiency'], k: 'att_eff', f: pct, vol: 'att_tot', sub: r => L(`${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.`, `${r.att_pts} pts · ${r.att_err + r.att_blo} errors/blocked · ${r.att_tot} att.`) },
-  { t: ['Réussite en attaque', 'Kill percentage'], k: 'att_pct', f: pct, vol: 'att_tot', sub: r => `${r.att_pts}/${r.att_tot}` },
-  { t: ['Aces', 'Aces'], k: 'srv_pts', count: true, sub: r => L(`${r.srv_pts} aces · ${r.srv_tot} services · ${r.srv_err} fautes`, `${r.srv_pts} aces · ${r.srv_tot} serves · ${r.srv_err} errors`) },
-  { t: ['Points au contre', 'Block points'], k: 'blk_pts', count: true, sub: r => L(`${r.blk_pts} contres`, `${r.blk_pts} blocks`) },
-  { t: ['Réception positive', 'Positive reception'], k: 'rec_pos_pct', f: pct, vol: 'rec_tot', sub: r => L(`${r.rec_tot} réceptions · ${r.rec_err} fautes`, `${r.rec_tot} receptions · ${r.rec_err} errors`) },
-  { t: ['Réception parfaite', 'Perfect reception'], k: 'rec_exc_pct', f: pct, vol: 'rec_tot', sub: r => L(`${r.rec_tot} réceptions`, `${r.rec_tot} receptions`) },
-  { t: ['Points en break-point', 'Break points'], k: 'bp', count: true, sub: r => L(`${r.bp} BP sur ${r.pts} pts`, `${r.bp} BP out of ${r.pts} pts`) },
-  { t: ['Différentiel V-D', 'Plus/minus'], k: 'wl', count: true, signed: true, sub: r => L(`${r.wl > 0 ? '+' : ''}${r.wl} au total`, `${r.wl > 0 ? '+' : ''}${r.wl} in total`) },
-  { t: ['Note moyenne Data Volley', 'Average Data Volley rating'], k: 'vote', f: fix(1), sub: () => '' },
+  { t: ['Points', 'Points'], k: 'pts', fam: 'attack', count: true, sub: r => L(`${r.pts} pts : ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres`, `${r.pts} pts: ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} blocks`) },
+  { t: ['Points en attaque', 'Attack points'], k: 'att_pts', fam: 'attack', count: true, sub: r => L(`${r.att_pts} pts sur ${r.att_tot} attaques`, `${r.att_pts} pts from ${r.att_tot} attacks`) },
+  { t: ['Efficacité en attaque', 'Attack efficiency'], k: 'att_eff', fam: 'attack', f: pct, vol: 'att_tot', sub: r => L(`${r.att_pts} pts · ${r.att_err + r.att_blo} fautes/contrés · ${r.att_tot} att.`, `${r.att_pts} pts · ${r.att_err + r.att_blo} errors/blocked · ${r.att_tot} att.`) },
+  { t: ['Réussite en attaque', 'Kill percentage'], k: 'att_pct', fam: 'attack', f: pct, vol: 'att_tot', sub: r => `${r.att_pts}/${r.att_tot}` },
+  { t: ['Aces', 'Aces'], k: 'srv_pts', fam: 'serve', count: true, sub: r => L(`${r.srv_pts} aces · ${r.srv_tot} services · ${r.srv_err} fautes`, `${r.srv_pts} aces · ${r.srv_tot} serves · ${r.srv_err} errors`) },
+  { t: ['Points au contre', 'Block points'], k: 'blk_pts', fam: 'block', count: true, sub: r => L(`${r.blk_pts} contres`, `${r.blk_pts} blocks`) },
+  { t: ['Réception positive', 'Positive reception'], k: 'rec_pos_pct', fam: 'reception', f: pct, vol: 'rec_tot', sub: r => L(`${r.rec_tot} réceptions · ${r.rec_err} fautes`, `${r.rec_tot} receptions · ${r.rec_err} errors`) },
+  { t: ['Réception parfaite', 'Perfect reception'], k: 'rec_exc_pct', fam: 'reception', f: pct, vol: 'rec_tot', sub: r => L(`${r.rec_tot} réceptions`, `${r.rec_tot} receptions`) },
+  { t: ['Points en break-point', 'Break points'], k: 'bp', fam: 'breakpoint', count: true, sub: r => L(`${r.bp} BP sur ${r.pts} pts`, `${r.bp} BP out of ${r.pts} pts`) },
+  { t: ['Différentiel V-D', 'Plus/minus'], k: 'wl', fam: 'plusminus', count: true, signed: true, sub: r => L(`${r.wl > 0 ? '+' : ''}${r.wl} au total`, `${r.wl > 0 ? '+' : ''}${r.wl} in total`) },
+  { t: ['Note moyenne Data Volley', 'Average Data Volley rating'], k: 'vote', fam: 'rating', f: fix(1), sub: () => '' },
 ];
 const MODES = { total: [['Totaux', 'Totals'], ['', ''], null], set: [['Par set', 'Per set'], [' par set', ' per set'], 'sets'], match: [['Par match', 'Per match'], [' par match', ' per match'], 'games'] };
 const lstate = { top: 10, team: '', mode: 'set', part: 0.5, pos: '', nat: '' };
 const setsGames = r => L(`${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;m.`, `${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;gp`);
 
-// Règles communes aux classements (onglet Stats joueurs et fiche joueur) : mode et minimums de lstate
+// Règles communes aux classements (onglet Stats joueurs et fiche joueur) : mode et minimums de lstate.
+// `pool` = joueurs comparés (toute la ligue, ou un poste) ; le volume minimum se calcule sur ce bassin.
 function leaderRules(c, all) {
   const [, suffix, denom] = MODES[lstate.mode];
   const rate = c.count && denom;
   const needPart = !(c.count && lstate.mode === 'total');
-  // Seuils calculés sur toute la ligue, même quand on filtre une équipe
+  // Seuils calculés sur tout le bassin, même quand la page filtre une équipe
   const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
   return {
     title: tr(c.t) + (c.count ? tr(suffix) : ''), needPart, volMin,
@@ -456,32 +459,45 @@ async function renderPlayers() {
   draw();
 }
 
-// Les 3 classements où le joueur est le mieux placé (rang de compétition : ex-aequo au même rang)
+// Les 3 classements où le joueur est le mieux placé parmi les joueurs de son poste
+// (toute la ligue si le poste est inconnu), au plus un par famille de stats.
+// Rang de compétition : des ex-aequo ont le même rang.
 function bestRanks(id, all) {
+  const me0 = all.find(r => r.player_id === id);
+  const pool = me0 && me0.position ? all.filter(r => r.position === me0.position) : all;
   const out = [];
   for (const c of LEADERS) {
-    const list = leaderList(c, all), me = list.find(x => x.r.player_id === id);
+    const list = leaderList(c, pool), me = list.find(x => x.r.player_id === id);
     if (!me) continue;
-    const R = leaderRules(c, all), rank = 1 + list.filter(x => x.v > me.v).length;
+    const R = leaderRules(c, pool), rank = 1 + list.filter(x => x.v > me.v).length;
     // Seulement les classements qui le distinguent : valeur non nulle et première moitié
-    // (évite « 43e aux aces » pour un libéro qui ne sert pas)
+    // (évite « 8e aux aces » pour un libéro qui ne sert pas)
     if (me.v > 0 && rank <= Math.ceil(list.length / 2))
-      out.push({ title: R.title, value: R.fmt(me.v), rank, n: list.length });
+      out.push({ title: R.title, value: R.fmt(me.v), rank, n: list.length, fam: c.fam });
   }
-  return out.sort((a, b) => a.rank - b.rank || a.rank / a.n - b.rank / b.n).slice(0, 3);
+  out.sort((a, b) => a.rank - b.rank || a.rank / a.n - b.rank / b.n);
+  const seen = new Set();
+  return out.filter(b => !seen.has(b.fam) && seen.add(b.fam)).slice(0, 3);
 }
 
 async function openPlayer(id) {
   const [p, all] = await Promise.all([api('players/' + id), loadPlayers()]);
   const best = bestRanks(id, all);
   const share = Math.round(lstate.part * 100), modeName = tr(MODES[lstate.mode][0]).toLowerCase();
+  // « des centraux » / « among middle blockers », ou toute la ligue si le poste est inconnu
+  const among = p.position ? tr(POS_PLURAL[p.position]) : '';
+  const ofN = n => among ? L(`sur ${n} ${among} classés`, `of ${n} ${among} ranked`) : L(`sur ${n} classés`, `of ${n} ranked`);
   const ranksHtml = best.length ? `<div class="ranks">${best.map(b => `<div class="rankcard${b.rank === 1 ? ' top' : ''}">
-      <div class="rkbig">${ordinal(b.rank)}</div><div><b>${b.title}</b><div class="muted">${b.value} · ${L(`sur ${b.n} classés`, `of ${b.n} ranked`)}</div></div></div>`).join('')}</div>
-    <div class="legend">${L(`Meilleurs classements dans la ligue (${modeName}, min. ${share} % des sets de l'équipe), selon les réglages de Stats joueurs.`,
-                           `Best league rankings (${modeName}, min. ${share}% of team sets), following the Player stats settings.`)}</div>`
+      <div class="rkbig">${ordinal(b.rank)}</div><div><b>${b.title}</b><div class="muted">${b.value} · ${ofN(b.n)}</div></div></div>`).join('')}</div>
+    <div class="legend">${among
+      ? L(`Meilleurs classements parmi les ${among} de la ligue, un par famille de stats (${modeName}, min. ${share} % des sets de l'équipe ; volume minimum calculé sur le poste).`,
+          `Best rankings among the league's ${among}, one per stat family (${modeName}, min. ${share}% of team sets; minimum volume computed within the position).`)
+      : L(`Meilleurs classements dans la ligue (poste inconnu), un par famille de stats (${modeName}, min. ${share} % des sets de l'équipe).`,
+          `Best league rankings (position unknown), one per stat family (${modeName}, min. ${share}% of team sets).`)}</div>`
     : all.some(r => r.player_id === id && r.sets >= lstate.part * r.team_sets)
-      ? `<div class="legend">${L('Pas encore dans la première moitié d’un classement de la ligue.', 'Not yet in the top half of any league ranking.')}</div>`
-      : `<div class="legend">${L('Pas encore assez de temps de jeu pour figurer dans les classements de la ligue.', 'Not enough playing time yet to appear in the league rankings.')}</div>`;
+      ? `<div class="legend">${among ? L(`Pas encore dans la première moitié d’un classement des ${among}.`, `Not yet in the top half of any ranking among ${among}.`)
+                                     : L('Pas encore dans la première moitié d’un classement de la ligue.', 'Not yet in the top half of any league ranking.')}</div>`
+      : `<div class="legend">${L('Pas encore assez de temps de jeu pour figurer dans les classements.', 'Not enough playing time yet to appear in the rankings.')}</div>`;
   const facts = [p.position && tr(POS[p.position]) + (p.position_src === 'déduit' ? L(' (déduit des feuilles)', ' (inferred from match sheets)') : ''),
     country(p), p.birth_year && L(`né en ${p.birth_year}`, `born ${p.birth_year}`), p.height && `${p.height} cm`].filter(Boolean).join(' · ');
   $('#dlg-title').innerHTML = `<div class="profile">${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy">` : ''}
