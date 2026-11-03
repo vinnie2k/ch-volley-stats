@@ -9,6 +9,7 @@ import re
 import sys
 import time
 import urllib.request
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import db
@@ -123,8 +124,24 @@ def download_pdf(season, game_id):
     return path
 
 
-def import_stats(con, game_id, home_id, away_id, pdf_path):
+def check_sheet(teams, n_sets):
+    """Refuse une feuille incohérente (PDF incomplet, mise en page inattendue) plutôt que
+    d'importer des chiffres faux : elle sera retéléchargée au passage suivant."""
+    if len(teams) != 2:
+        raise ValueError(f"{len(teams)} équipes lues")
+    for t in teams:
+        if not t["players"] or not t["total"]:
+            raise ValueError("bloc d'équipe vide")
+        for k in ("pts_tot", "srv_tot", "rec_tot", "att_tot", "att_pts", "blk_pts"):
+            if sum(p[k] for p in t["players"]) != t["total"][k]:
+                raise ValueError(f"somme des joueurs ≠ total d'équipe ({k})")
+        if len(t["sets"]) != n_sets:
+            raise ValueError(f"{len(t['sets'])} sets sur la feuille, {n_sets} au résultat officiel")
+
+
+def import_stats(con, game_id, home_id, away_id, pdf_path, n_sets):
     teams = parse_stats.parse(pdf_path)
+    check_sheet(teams, n_sets)
     con.execute("DELETE FROM player_game WHERE game_id=?", (game_id,))
     con.execute("DELETE FROM team_game WHERE game_id=?", (game_id,))
     con.execute("DELETE FROM team_phase WHERE game_id=?", (game_id,))
@@ -153,9 +170,26 @@ def main():
     ap.add_argument("--season", type=int, default=2026, help="année de début de saison (2026 = 2026/27)")
     ap.add_argument("--league", type=int, default=7088, help="id de ligue (7088 = LNA Hommes 2026/27)")
     ap.add_argument("--reparse", action="store_true", help="réimporter aussi les matchs déjà traités")
+    ap.add_argument("--rosters", choices=["auto", "always", "never"], default="auto",
+                    help="effectifs officiels : auto = après une nouvelle feuille ou une fois par jour")
     a = ap.parse_args()
 
     con = db.connect()
+    db.set_meta(con, "last_check", now_iso())
+    con.commit()
+    try:
+        run(con, a)
+    except Exception as e:
+        db.set_meta(con, "last_error", f"{now_iso()} {e}")
+        con.commit()
+        raise
+
+
+def now_iso():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def run(con, a):
     games = fetch_games(a.season, a.league)
     print(f"{len(games)} matchs trouvés")
     played = [g for g in games if upsert_game(con, g, a.season, a.league)]
@@ -168,26 +202,42 @@ def main():
         if gid in done and not a.reparse:
             continue
         label = f'{gid} {g["teams"]["home"]["caption"]} – {g["teams"]["away"]["caption"]}'
+        pdf = None
         try:
             pdf = download_pdf(a.season, gid)
             if pdf is None:
-                status = "missing"
+                status = "missing"   # pas encore publiée : on réessaiera au passage suivant
             else:
-                import_stats(con, gid, g["teams"]["home"]["teamId"], g["teams"]["away"]["teamId"], pdf)
+                import_stats(con, gid, g["teams"]["home"]["teamId"], g["teams"]["away"]["teamId"], pdf,
+                             len(g["setResults"]))
                 status = "ok"
                 new += 1
         except Exception as e:
+            con.rollback()   # pas d'import partiel
+            if pdf is not None:
+                pdf.unlink(missing_ok=True)   # PDF douteux : le retélécharger au prochain passage
             status = f"error: {e}"
         con.execute("UPDATE games SET stats_status=? WHERE game_id=?", (status, gid))
         con.commit()
         print(f"  {label}: {status}")
     print(f"Terminé : {len(played)} matchs joués, {new} feuille(s) importée(s).")
-    # Postes, nationalité et fiche : effectifs officiels, puis déduction des postes manquants
-    linked = positions.apply_rosters(con)
+    if new:
+        db.set_meta(con, "last_import", now_iso())
+    db.set_meta(con, "last_ok", now_iso())
+    db.set_meta(con, "last_error", "")
+
+    # Postes, nationalité et fiche : effectifs officiels, puis déduction des postes manquants.
+    # Les effectifs bougent peu : on ne les relit qu'après une nouvelle feuille ou une fois par jour.
+    last = db.get_meta(con, "rosters_at")
+    stale = not last or datetime.now() - datetime.fromisoformat(last) > timedelta(hours=20)
+    if a.rosters == "always" or (a.rosters == "auto" and (new or stale)):
+        linked = positions.apply_rosters(con)
+        db.set_meta(con, "rosters_at", now_iso())
+        print(f"Effectifs : {linked} joueurs reliés.")
     guessed = positions.infer_positions(con)
     con.commit()
     missing = con.execute("SELECT COUNT(*) FROM players WHERE position IS NULL").fetchone()[0]
-    print(f"Effectifs : {linked} joueurs reliés, {len(guessed)} postes déduits des feuilles, {missing} sans poste.")
+    print(f"Postes : {len(guessed)} déduits des feuilles, {missing} joueurs sans poste.")
 
 
 if __name__ == "__main__":

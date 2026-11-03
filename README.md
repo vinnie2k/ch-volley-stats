@@ -20,7 +20,19 @@ python scraper.py
 - Télécharge la feuille de stats de chaque match joué dans `data/pdf/<id>.pdf` (une seule fois).
 - Importe les stats joueur par joueur et équipe par set dans `data/ch-volley-stats.db`.
 
-À relancer après chaque journée : seuls les nouveaux matchs sont traités.
+Seuls les nouveaux matchs sont traités. En production, le serveur s'en charge tout seul
+(`python server.py --update-every 60`, réglage du conteneur Docker) : une vérification toutes les
+heures à hh:05.
+
+- Un match joué dont la feuille n'est pas encore publiée reste « en attente » et est retenté à
+  chaque passage, jusqu'à ce qu'elle arrive.
+- Chaque feuille est contrôlée avant import (sommes des joueurs = totaux d'équipe, nombre de sets =
+  résultat officiel). Une feuille incohérente n'est pas importée : son PDF est supprimé et
+  retéléchargé au passage suivant, sans toucher aux données existantes.
+- Les effectifs officiels (postes, nationalités) sont relus après une nouvelle feuille, ou au plus
+  une fois par jour.
+- L'heure de la dernière vérification, les feuilles en attente et une éventuelle erreur sont
+  affichées dans l'app (table `meta`, route `api/meta`).
 Options : `--season 2027 --league <id>` pour une autre saison (l'id de ligue est dans l'URL du
 Game Center, paramètre `i_league`), `--reparse` pour réimporter depuis les PDF déjà téléchargés.
 

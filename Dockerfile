@@ -7,4 +7,4 @@ COPY *.py ./
 COPY static ./static
 ENV PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
 EXPOSE 8000
-CMD ["python", "server.py", "--host", "0.0.0.0", "--port", "8000", "--update-hours", "7,23"]
+CMD ["python", "server.py", "--host", "0.0.0.0", "--port", "8000", "--update-every", "60"]

@@ -201,7 +201,8 @@ async function renderStandings() {
       <td>${r.balls_w}:${r.balls_l}</td><td>${(r.balls_w / Math.max(r.balls_l, 1)).toFixed(2)}</td></tr>`).join('')}
     </tbody></table>
     <div class="legend">${L('Calculé à partir des résultats importés. 3-0 / 3-1 : 3 pts · 3-2 : 2 pts · 2-3 : 1 pt.',
-                           'Computed from the imported results. 3-0 / 3-1: 3 pts · 3-2: 2 pts · 2-3: 1 pt.')}</div></div>`;
+                           'Computed from the imported results. 3-0 / 3-1: 3 pts · 3-2: 2 pts · 2-3: 1 pt.')}
+      ${updateInfo() ? `<br>${L('Mise à jour automatique toutes les heures : ', 'Updated automatically every hour: ')}${updateInfo()}.` : ''}</div></div>`;
 }
 
 // ---------- Matchs ----------
@@ -575,8 +576,22 @@ function renderChrome() {
   if (meta) {
     $('#meta').textContent = L(`${meta.games_with_stats} feuilles de stats importées · ${meta.games_played}/${meta.games_total} matchs joués`,
                                `${meta.games_with_stats} stat sheets imported · ${meta.games_played}/${meta.games_total} matches played`) +
-      (meta.last_game ? L(` · dernier match : ${fmtDate(meta.last_game)}`, ` · last match: ${fmtDate(meta.last_game)}`) : '');
+      (meta.last_game ? L(` · dernier match : ${fmtDate(meta.last_game)}`, ` · last match: ${fmtDate(meta.last_game)}`) : '') +
+      (updateInfo() ? ' · ' + updateInfo() : '');
   }
+}
+// « vérifié à 17:05 » (ou la date si ce n'est pas aujourd'hui) et feuilles attendues
+function updateInfo() {
+  if (!meta) return '';
+  const parts = [];
+  if (meta.last_check) {
+    const d = new Date(meta.last_check), today = d.toDateString() === new Date().toDateString();
+    const when = (today ? '' : fmtDate(meta.last_check) + ' ') + d.toTimeString().slice(0, 5);
+    parts.push(L(`vérifié ${today ? 'à' : 'le'} ${when}`, `checked ${today ? 'at' : 'on'} ${when}`));
+  }
+  if (meta.games_pending) parts.push(L(`${meta.games_pending} feuille(s) en attente de publication`, `${meta.games_pending} sheet(s) awaiting publication`));
+  if (meta.last_error) parts.push(L('dernière vérification en erreur', 'last check failed'));
+  return parts.join(' · ');
 }
 document.querySelectorAll('.lang button').forEach(b => b.onclick = () => {
   if (b.dataset.l === lang) return;
@@ -586,7 +601,7 @@ document.querySelectorAll('.lang button').forEach(b => b.onclick = () => {
   renderChrome();
   views[current]();
 });
-api('meta').then(m => { meta = m; renderChrome(); });
+api('meta').then(m => { meta = m; renderChrome(); if (current === 'standings') renderStandings(); });
 renderChrome();
 const start = location.hash.slice(1);
 (document.querySelector(`#tabs [data-tab="${start}"]`) || document.querySelector('#tabs button')).click();

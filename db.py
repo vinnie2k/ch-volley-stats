@@ -90,7 +90,23 @@ CREATE TABLE IF NOT EXISTS team_phase (
     rot1 INTEGER, rot2 INTEGER, rot3 INTEGER, rot4 INTEGER, rot5 INTEGER, rot6 INTEGER,
     PRIMARY KEY (game_id, team_id)
 );
+
+-- Suivi des mises à jour automatiques (last_check, last_ok, last_import, last_error, rosters_at)
+CREATE TABLE IF NOT EXISTS meta (
+    key    TEXT PRIMARY KEY,
+    value  TEXT
+);
 """
+
+
+def set_meta(con, key, value):
+    con.execute("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value))
+
+
+def get_meta(con, key):
+    row = con.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
 
 
 def connect(path=DB_PATH):

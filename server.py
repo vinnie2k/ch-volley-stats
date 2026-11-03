@@ -222,39 +222,46 @@ class Handler(SimpleHTTPRequestHandler):
             if parts == ["teams"]:
                 return self.send_json(teams(con))
             if parts == ["meta"]:
-                return self.send_json(dict(con.execute("""
+                meta = dict(con.execute("""
                     SELECT COUNT(*) games_total,
                            SUM(home_sets IS NOT NULL) games_played,
                            SUM(stats_status = 'ok') games_with_stats,
+                           -- matchs joués dont la feuille n'est pas (encore) intégrée
+                           SUM(home_sets IS NOT NULL AND COALESCE(stats_status, '') <> 'ok') games_pending,
                            MAX(CASE WHEN stats_status = 'ok' THEN play_date END) last_game
-                    FROM games""").fetchone()))
+                    FROM games""").fetchone())
+                meta.update({r["key"]: r["value"] for r in con.execute("SELECT key, value FROM meta")})
+                return self.send_json(meta)
             return self.send_json({"error": "route inconnue"}, 404)
         finally:
             con.close()
 
 
-def update_loop(hours):
-    """Lance scraper.py au démarrage puis chaque jour aux heures données (heure locale, TZ)."""
+def update_loop(every):
+    """Lance scraper.py au démarrage puis toutes les `every` minutes, calé sur hh:05 (heure locale, TZ).
+    Un passage sans nouveau match ne coûte qu'un appel au site ; les feuilles publiées tard dans la
+    soirée sont ainsi intégrées dans l'heure."""
     while True:
         print(time.strftime("%Y-%m-%d %H:%M"), "mise à jour des données", flush=True)
-        subprocess.run([sys.executable, str(ROOT / "scraper.py")], cwd=ROOT)
+        try:
+            subprocess.run([sys.executable, str(ROOT / "scraper.py")], cwd=ROOT, timeout=20 * 60)
+        except subprocess.TimeoutExpired:
+            print("mise à jour interrompue après 20 min", flush=True)
         now = datetime.now()
-        nxt = min(now.replace(hour=h, minute=0, second=0, microsecond=0) + timedelta(days=d)
-                  for h in hours for d in (0, 1)
-                  if now.replace(hour=h, minute=0, second=0, microsecond=0) + timedelta(days=d) > now)
-        time.sleep((nxt - now).total_seconds())
+        day = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=5)
+        slots = int((now - day).total_seconds() // (every * 60)) + 1
+        time.sleep(max(60, (day + timedelta(minutes=every * slots) - now).total_seconds()))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--update-hours", default="",
-                    help="heures de mise à jour automatique, ex. « 6,23 » (vide = aucune)")
+    ap.add_argument("--update-every", type=int, default=0,
+                    help="mise à jour automatique toutes les N minutes (0 = aucune)")
     a = ap.parse_args()
-    if a.update_hours:
-        hours = [int(h) for h in a.update_hours.split(",")]
-        threading.Thread(target=update_loop, args=(hours,), daemon=True).start()
+    if a.update_every:
+        threading.Thread(target=update_loop, args=(a.update_every,), daemon=True).start()
     print(f"ch-volley-stats : http://localhost:{a.port}", flush=True)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
