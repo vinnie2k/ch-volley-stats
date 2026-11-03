@@ -86,6 +86,11 @@
   .lrow.first .lval { color: var(--accent); }
   td.heat { background: color-mix(in srgb, var(--c) calc(var(--a) * 100%), transparent); font-weight: 600; }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
+  .ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; }
+  .rankcard { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .rankcard .rkbig { font-size: 24px; font-weight: 800; min-width: 52px; text-align: center; color: var(--muted); }
+  .rankcard.top { border-color: var(--accent); background: var(--accent-soft); }
+  .rankcard.top .rkbig { color: var(--accent); }
 
   /* Téléphone */
   @media (max-width: 600px) {
@@ -324,6 +329,27 @@ const MODES = { total: [['Totaux', 'Totals'], ['', ''], null], set: [['Par set',
 const lstate = { top: 10, team: '', mode: 'set', part: 0.5, pos: '', nat: '' };
 const setsGames = r => L(`${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;m.`, `${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;gp`);
 
+// Règles communes aux classements (onglet Stats joueurs et fiche joueur) : mode et minimums de lstate
+function leaderRules(c, all) {
+  const [, suffix, denom] = MODES[lstate.mode];
+  const rate = c.count && denom;
+  const needPart = !(c.count && lstate.mode === 'total');
+  // Seuils calculés sur toute la ligue, même quand on filtre une équipe
+  const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
+  return {
+    title: tr(c.t) + (c.count ? tr(suffix) : ''), needPart, volMin,
+    val: r => rate ? r[c.k] / Math.max(r[denom], 1) : r[c.k],
+    fmt: rate ? (v => (c.signed && v > 0 ? '+' : '') + v.toFixed(denom === 'sets' ? 2 : 1)) : c.signed ? sign : (c.f || (v => v)),
+  };
+}
+// Joueurs classables pour un classement, du meilleur au moins bon
+function leaderList(c, all) {
+  const R = leaderRules(c, all);
+  return all.filter(r => r[c.k] != null && (!R.needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= R.volMin))
+    .map(r => ({ r, v: R.val(r) })).sort((a, b) => b.v - a.v || b.r.sets - a.r.sets);
+}
+const ordinal = n => L(n === 1 ? '1er' : `${n}e`, n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'));
+
 async function renderLeaders() {
   const [all, teams] = await Promise.all([loadPlayers(), load('standings')]);
   $('#view').innerHTML = `<div class="toolbar">
@@ -341,23 +367,15 @@ async function renderLeaders() {
       Except for totals, a player must have played the selected share of his team's sets; percentage rankings also require
       ${Math.round(VOL_SHARE * 100)}% of the volume of the league's busiest player. Attack efficiency = (kills − errors − blocked) / attempts.`)}</div>`;
   const draw = () => {
-    const [, suffix, denom] = MODES[lstate.mode];
     $('#lgrid').innerHTML = LEADERS.map(c => {
-      const rate = c.count && denom;
-      const val = r => rate ? r[c.k] / Math.max(r[denom], 1) : r[c.k];
-      const f = rate ? (v => (c.signed && v > 0 ? '+' : '') + v.toFixed(denom === 'sets' ? 2 : 1)) : c.signed ? sign : (c.f || (v => v));
-      const needPart = !(c.count && lstate.mode === 'total');
-      // Seuils calculés sur toute la ligue, même quand on filtre une équipe
-      const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
-      const list = all.filter(r => r[c.k] != null && (!lstate.team || r.team_id == lstate.team)
-          && (!lstate.pos || r.position === lstate.pos) && natMatch(r, lstate.nat)
-          && (!needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= volMin))
-        .map(r => ({ r, v: val(r) })).sort((a, b) => b.v - a.v || b.r.sets - a.r.sets).slice(0, lstate.top);
+      const { title, fmt: f, needPart, volMin } = leaderRules(c, all);
+      const list = leaderList(c, all).filter(({ r }) => (!lstate.team || r.team_id == lstate.team)
+          && (!lstate.pos || r.position === lstate.pos) && natMatch(r, lstate.nat)).slice(0, lstate.top);
       const max = Math.max(...list.map(x => x.v), 1e-9);
       const share = Math.round(lstate.part * 100);
       const crit = [needPart && lstate.part ? L(`${share} % des sets de l'équipe`, `${share}% of team sets`) : '', c.vol ? `${volMin} ${tr(VOLNAME[c.vol])}` : '']
         .filter(Boolean).join(' · ');
-      return `<div class="card"><h2>${tr(c.t)}${c.count ? tr(suffix) : ''}</h2><div class="crit">${crit ? 'min. ' + crit : ''}</div>
+      return `<div class="card"><h2>${title}</h2><div class="crit">${crit ? 'min. ' + crit : ''}</div>
         ${list.map(({ r, v }, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
           <span class="rk">${i + 1}</span>
           <span class="lname"><b>${esc(r.name)}</b> ${posTag(r)} <span class="lteam">${esc(r.team)}</span></span>
@@ -438,14 +456,38 @@ async function renderPlayers() {
   draw();
 }
 
+// Les 3 classements où le joueur est le mieux placé (rang de compétition : ex-aequo au même rang)
+function bestRanks(id, all) {
+  const out = [];
+  for (const c of LEADERS) {
+    const list = leaderList(c, all), me = list.find(x => x.r.player_id === id);
+    if (!me) continue;
+    const R = leaderRules(c, all), rank = 1 + list.filter(x => x.v > me.v).length;
+    // Seulement les classements qui le distinguent : valeur non nulle et première moitié
+    // (évite « 43e aux aces » pour un libéro qui ne sert pas)
+    if (me.v > 0 && rank <= Math.ceil(list.length / 2))
+      out.push({ title: R.title, value: R.fmt(me.v), rank, n: list.length });
+  }
+  return out.sort((a, b) => a.rank - b.rank || a.rank / a.n - b.rank / b.n).slice(0, 3);
+}
+
 async function openPlayer(id) {
-  const p = await api('players/' + id);
+  const [p, all] = await Promise.all([api('players/' + id), loadPlayers()]);
+  const best = bestRanks(id, all);
+  const share = Math.round(lstate.part * 100), modeName = tr(MODES[lstate.mode][0]).toLowerCase();
+  const ranksHtml = best.length ? `<div class="ranks">${best.map(b => `<div class="rankcard${b.rank === 1 ? ' top' : ''}">
+      <div class="rkbig">${ordinal(b.rank)}</div><div><b>${b.title}</b><div class="muted">${b.value} · ${L(`sur ${b.n} classés`, `of ${b.n} ranked`)}</div></div></div>`).join('')}</div>
+    <div class="legend">${L(`Meilleurs classements dans la ligue (${modeName}, min. ${share} % des sets de l'équipe), selon les réglages de Stats joueurs.`,
+                           `Best league rankings (${modeName}, min. ${share}% of team sets), following the Player stats settings.`)}</div>`
+    : all.some(r => r.player_id === id && r.sets >= lstate.part * r.team_sets)
+      ? `<div class="legend">${L('Pas encore dans la première moitié d’un classement de la ligue.', 'Not yet in the top half of any league ranking.')}</div>`
+      : `<div class="legend">${L('Pas encore assez de temps de jeu pour figurer dans les classements de la ligue.', 'Not enough playing time yet to appear in the league rankings.')}</div>`;
   const facts = [p.position && tr(POS[p.position]) + (p.position_src === 'déduit' ? L(' (déduit des feuilles)', ' (inferred from match sheets)') : ''),
     country(p), p.birth_year && L(`né en ${p.birth_year}`, `born ${p.birth_year}`), p.height && `${p.height} cm`].filter(Boolean).join(' · ');
   $('#dlg-title').innerHTML = `<div class="profile">${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy">` : ''}
     <div><div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}${facts ? ' · ' + esc(facts) : ''}</div></div></div>`;
   const tot = k => p.games.reduce((s, g) => s + (g[k] || 0), 0);
-  $('#dlg-body').innerHTML = `<div class="scroll"><table>
+  $('#dlg-body').innerHTML = `${ranksHtml}<h3>${L('Match par match', 'Match by match')}</h3><div class="scroll"><table>
     <thead>${groupHeader(BOX, 4)}<tr><th class="l sc">Date</th><th class="l">${L('Adversaire', 'Opponent')}</th><th>Sets</th><th>${L('Note', 'Rating')}</th>${BOX.map(c => `<th>${tr(c[1])}</th>`).join('')}</tr></thead>
     <tbody>${p.games.map(g => {
       const home = g.home_team_id === g.team_id, my = home ? g.home_sets : g.away_sets, their = home ? g.away_sets : g.home_sets;
