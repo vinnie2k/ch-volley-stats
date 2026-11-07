@@ -105,10 +105,7 @@ def upsert_game(con, g, season, league):
     return bool(sets)
 
 
-def download_pdf(season, game_id):
-    path = PDF_DIR / f"{game_id}.pdf"
-    if path.exists() and path.stat().st_size > 1000:
-        return path
+def fetch_pdf(season, game_id):
     url = f"{BASE}/api/game-center/download/statistics/{season}{(season + 1) % 100:02d}/Men/{game_id}"
     try:
         data = http(url)
@@ -116,12 +113,59 @@ def download_pdf(season, game_id):
         if e.code == 404:
             return None
         raise
-    if not data.startswith(b"%PDF"):
+    time.sleep(0.5)  # politesse envers le serveur
+    return data if data.startswith(b"%PDF") else None
+
+
+def download_pdf(season, game_id):
+    path = PDF_DIR / f"{game_id}.pdf"
+    if path.exists() and path.stat().st_size > 1000:
+        return path
+    data = fetch_pdf(season, game_id)
+    if data is None:
         return None
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
-    time.sleep(0.5)  # politesse envers le serveur
     return path
+
+
+def refresh_pdf(season, game_id):
+    """Retélécharge une feuille signalée incomplète. True si la fédération en a publié une
+    autre version (elle remplace alors la copie locale et sera réimportée)."""
+    data = fetch_pdf(season, game_id)
+    path = PDF_DIR / f"{game_id}.pdf"
+    if data is None or (path.exists() and path.read_bytes() == data):
+        return False
+    path.write_bytes(data)
+    return True
+
+
+# Feuille saisie de façon incomplète par le statisticien (ex. Lausanne – Colombier du 07.11.2026) :
+# contres attribués à personne, points d'attaque classés en « fautes adverses ».
+# Elle reste importée telle quelle ; l'app l'affiche avec une alerte.
+OP_ERR_SHARE_MAX = 0.5   # d'habitude 25-40 % des points d'une équipe
+
+
+def assess_sheet(con, game_id):
+    rows = con.execute("""
+        SELECT t.team_id, tm.name, t.blk_pts, o.att_blo opp_blocked,
+               SUM(s.won_op_err) op_err, SUM(s.won_srv + s.won_att + s.won_blk + s.won_op_err) won
+        FROM team_game t
+        JOIN team_game o ON o.game_id = t.game_id AND o.set_no = 0 AND o.team_id <> t.team_id
+        JOIN team_game s ON s.game_id = t.game_id AND s.team_id = t.team_id AND s.set_no > 0
+        JOIN teams tm ON tm.team_id = t.team_id
+        WHERE t.game_id = ? AND t.set_no = 0 GROUP BY t.team_id""", (game_id,)).fetchall()
+    issues = []
+    for r in rows:
+        # Un contre gagnant de l'équipe = une attaque adverse contrée : les deux doivent concorder
+        if not r["blk_pts"] and (r["opp_blocked"] or 0) >= 3:
+            issues.append({"team": r["name"], "kind": "blocks", "opp_blocked": r["opp_blocked"]})
+        if r["won"] and r["op_err"] / r["won"] > OP_ERR_SHARE_MAX:
+            issues.append({"team": r["name"], "kind": "op_err", "share": round(100 * r["op_err"] / r["won"]),
+                           "points": r["op_err"], "won": r["won"]})
+    con.execute("UPDATE games SET stats_quality=? WHERE game_id=?",
+                (json.dumps(issues, ensure_ascii=False) if issues else None, game_id))
+    return issues
 
 
 def check_sheet(teams, n_sets):
@@ -196,6 +240,15 @@ def run(con, a):
     con.commit()
 
     done = {r[0] for r in con.execute("SELECT game_id FROM games WHERE stats_status='ok'")}
+    # Feuilles signalées incomplètes : on guette une version corrigée pendant 14 jours
+    for (gid,) in con.execute("""SELECT game_id FROM games WHERE stats_quality IS NOT NULL
+                                 AND play_date >= datetime('now', '-14 days')""").fetchall():
+        try:
+            if refresh_pdf(a.season, gid):
+                print(f"  {gid} : nouvelle version de la feuille publiée, réimport")
+                done.discard(gid)
+        except Exception as e:
+            print(f"  {gid} : revérification impossible ({e})")
     new = 0
     for g in played:
         gid = g["gameId"]
@@ -221,6 +274,13 @@ def run(con, a):
         con.commit()
         print(f"  {label}: {status}")
     print(f"Terminé : {len(played)} matchs joués, {new} feuille(s) importée(s).")
+    flagged = []
+    for (gid,) in con.execute("SELECT game_id FROM games WHERE stats_status='ok'").fetchall():
+        if assess_sheet(con, gid):
+            flagged.append(gid)
+    con.commit()
+    if flagged:
+        print(f"Feuilles officielles incomplètes (importées avec alerte) : {flagged}")
     if new:
         db.set_meta(con, "last_import", now_iso())
     db.set_meta(con, "last_ok", now_iso())

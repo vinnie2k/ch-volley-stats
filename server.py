@@ -70,7 +70,7 @@ def standings(con):
 
 def games(con):
     return q(con, """
-        SELECT g.game_id, g.play_date, g.phase, g.home_sets, g.away_sets, g.set_results, g.city, g.stats_status,
+        SELECT g.game_id, g.play_date, g.phase, g.home_sets, g.away_sets, g.set_results, g.city, g.stats_status, g.stats_quality,
                g.home_team_id, h.name home, g.away_team_id, a.name away
         FROM games g JOIN teams h ON h.team_id = g.home_team_id JOIN teams a ON a.team_id = g.away_team_id
         ORDER BY g.play_date""")
@@ -116,7 +116,7 @@ def player(con, pid):
         return None
     info = info[0]
     info["games"] = q(con, """
-        SELECT pg.*, g.play_date, g.home_team_id, g.home_sets, g.away_sets,
+        SELECT pg.*, g.play_date, g.home_team_id, g.stats_quality, g.home_sets, g.away_sets,
                CASE WHEN g.home_team_id = pg.team_id THEN a.name ELSE h.name END opponent
         FROM player_game pg JOIN games g USING(game_id)
         JOIN teams h ON h.team_id = g.home_team_id JOIN teams a ON a.team_id = g.away_team_id
@@ -228,6 +228,7 @@ class Handler(SimpleHTTPRequestHandler):
                            SUM(stats_status = 'ok') games_with_stats,
                            -- matchs joués dont la feuille n'est pas (encore) intégrée
                            SUM(home_sets IS NOT NULL AND COALESCE(stats_status, '') <> 'ok') games_pending,
+                           SUM(stats_quality IS NOT NULL) games_incomplete,
                            MAX(CASE WHEN stats_status = 'ok' THEN play_date END) last_game
                     FROM games""").fetchone())
                 meta.update({r["key"]: r["value"] for r in con.execute("SELECT key, value FROM meta")})

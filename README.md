@@ -29,6 +29,10 @@ heures à hh:05.
 - Chaque feuille est contrôlée avant import (sommes des joueurs = totaux d'équipe, nombre de sets =
   résultat officiel). Une feuille incohérente n'est pas importée : son PDF est supprimé et
   retéléchargé au passage suivant, sans toucher aux données existantes.
+- Feuilles officielles mal saisies par le statisticien (contres attribués à personne, plus de la
+  moitié des points classés en « fautes adverses ») : importées telles quelles mais signalées
+  (colonne `games.stats_quality`, alerte dans l'app), et retéléchargées à chaque passage pendant
+  14 jours au cas où une version corrigée serait publiée. Exemple : Lausanne – Colombier du 07.11.2026.
 - Les effectifs officiels (postes, nationalités) sont relus après une nouvelle feuille, ou au plus
   une fois par jour.
 - L'heure de la dernière vérification, les feuilles en attente et une éventuelle erreur sont

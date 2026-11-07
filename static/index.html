@@ -7,11 +7,11 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #6a7380; --line: #e3e6ea;
-    --accent: #d6001c; --accent-soft: #fde8eb; --good: #1a7f4b; --bad: #b42318;
+    --accent: #d6001c; --accent-soft: #fde8eb; --good: #1a7f4b; --bad: #b42318; --warn: #b45309;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #121417; --card: #1b1e23; --ink: #e8eaed; --muted: #98a1ad; --line: #2c3138;
-            --accent: #ff4d5e; --accent-soft: #3a1d22; --good: #4cc38a; --bad: #ff7a70; }
+            --accent: #ff4d5e; --accent-soft: #3a1d22; --good: #4cc38a; --bad: #ff7a70; --warn: #f0a32a; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
@@ -56,6 +56,10 @@
   .game .win { font-weight: 700; }
   .game .sets { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); margin-left: 6px; }
+  .tag.warn, .alert { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  .alert { border-left: 3px solid var(--warn); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
+  .alert b { color: inherit; }
+  .warnicon { color: var(--warn); cursor: help; }
   .week { margin: 18px 0 8px; font-weight: 600; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
   dialog { border: 0; border-radius: 12px; padding: 0; width: min(1100px, 96vw); max-height: 92vh; background: var(--card); color: var(--ink); }
   dialog::backdrop { background: rgba(0,0,0,.45); }
@@ -235,7 +239,7 @@ async function renderGames() {
         const sets = JSON.parse(g.set_results || '[]');
         const hw = g.home_sets > g.away_sets;
         return `<div class="game" onclick="${played(g) ? `openGame(${g.game_id})` : ''}">
-          <div class="date">${fmtDate(g.play_date)} · ${fmtTime(g.play_date)} · ${esc(g.city || '')}${g.stats_status === 'ok' ? '<span class="tag">stats</span>' : ''}</div>
+          <div class="date">${fmtDate(g.play_date)} · ${fmtTime(g.play_date)} · ${esc(g.city || '')}${g.stats_status === 'ok' ? (issues(g).length ? `<span class="tag warn" title="${shortWarn()}">${L('stats incomplètes', 'incomplete stats')}</span>` : '<span class="tag">stats</span>') : ''}</div>
           <div class="row ${played(g) && hw ? 'win' : ''}"><span>${esc(g.home)}</span><span>${g.home_sets ?? ''}</span></div>
           <div class="row ${played(g) && !hw ? 'win' : ''}"><span>${esc(g.away)}</span><span>${g.away_sets ?? ''}</span></div>
           ${sets.length ? `<div class="sets">${sets.map(s => s.join('-')).join(' · ')}</div>` : ''}</div>`;
@@ -248,6 +252,25 @@ async function renderGames() {
   });
   draw();
 }
+
+// Feuille officielle saisie de façon incomplète (détectée à l'import, stats reprises telles quelles)
+const issues = g => { try { return g.stats_quality ? JSON.parse(g.stats_quality) : []; } catch (e) { return []; } };
+function qualityText(list) {
+  const blocks = list.filter(i => i.kind === 'blocks'), op = list.filter(i => i.kind === 'op_err');
+  const parts = [];
+  if (blocks.length) parts.push(L(
+    `contres attribués à personne (${blocks.map(i => `${esc(i.team)} : 0 point au contre alors que l'adversaire a été contré ${i.opp_blocked} fois`).join(' ; ')})`,
+    `blocks credited to nobody (${blocks.map(i => `${esc(i.team)}: 0 block points although the opponent was blocked ${i.opp_blocked} times`).join('; ')})`));
+  if (op.length) parts.push(L(
+    `une grande partie des points classée en « fautes adverses » (${op.map(i => `${esc(i.team)} ${i.share} %`).join(', ')} ; d'habitude 25 à 40 %), donc des attaques gagnantes non saisies`,
+    `a large share of points recorded as "opponent errors" (${op.map(i => `${esc(i.team)} ${i.share}%`).join(', ')}; usually 25-40%), i.e. attack kills not recorded`));
+  return L(`<b>Feuille officielle incomplète :</b> ${parts.join(' et ')}. Les chiffres de ce match sont repris tels quels ; les contres et les attaques des joueurs concernés y sont sous-comptés.`,
+           `<b>Incomplete official sheet:</b> ${parts.join(' and ')}. This match's figures are kept as published; block and attack numbers of the players involved are undercounted.`);
+}
+const shortWarn = () => L('Feuille officielle incomplète : contres et attaques sous-comptés', 'Incomplete official sheet: blocks and attacks undercounted');
+const incompleteNote = () => meta && meta.games_incomplete ? ' ' + L(
+  `Inclut ${meta.games_incomplete} feuille(s) officielle(s) incomplète(s) (contres et attaques sous-comptés), signalée(s) dans Matchs.`,
+  `Includes ${meta.games_incomplete} incomplete official sheet(s) (blocks and attacks undercounted), flagged in Matches.`) : '';
 
 // Colonnes du tableau de stats d'un match (feuille officielle) : [clé, libellé, format, groupe]
 const BOX = [
@@ -287,7 +310,8 @@ async function openGame(id) {
         <td></td><td></td><td></td>${BOX.slice(3).map(c => `<td>${(c[2] || dash)(s[c[0]], s)}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div>`;
   };
-  $('#dlg-body').innerHTML = side(g.home_team_id, g.home) + side(g.away_team_id, g.away) +
+  $('#dlg-body').innerHTML = (issues(g).length ? `<div class="alert">${qualityText(issues(g))}</div>` : '') +
+    side(g.home_team_id, g.home) + side(g.away_team_id, g.away) +
     `<div class="legend">${L('BP : points en break-point · V-D : points gagnés − perdus · Pos% : réceptions positives (#+) · Exc% : parfaites (#) · Blo : attaques contrées.',
                              'BP: break points · +/-: points won − lost · Pos%: positive receptions (#+) · Exc%: perfect (#) · Blo: attacks blocked.')}
      <a href="pdf/${g.game_id}" target="_blank">${L('Feuille officielle (PDF)', 'Official sheet (PDF)')}</a></div>`;
@@ -365,10 +389,10 @@ async function renderLeaders() {
     </div><div class="leaders" id="lgrid"></div>
     <div class="legend">${L(`Sets joués = sets commencés comme titulaire ou entrés en remplacement (feuille officielle) ; un libéro sans marque est compté sur tout le match.
       Hors totaux, un joueur doit avoir joué la part minimale choisie des sets disputés par son équipe ; les classements en % exigent en plus
-      ${Math.round(VOL_SHARE * 100)} % du volume du joueur le plus sollicité de la ligue. Efficacité en attaque = (points − fautes − contrés) / attaques.`,
+      ${Math.round(VOL_SHARE * 100)} % du volume du joueur le plus sollicité de la ligue. Efficacité en attaque = (points − fautes − contrés) / attaques.${incompleteNote()}`,
       `Sets played = sets started or entered as a substitute (official sheet); an unmarked libero is counted for the whole match.
       Except for totals, a player must have played the selected share of his team's sets; percentage rankings also require
-      ${Math.round(VOL_SHARE * 100)}% of the volume of the league's busiest player. Attack efficiency = (kills − errors − blocked) / attempts.`)}</div>`;
+      ${Math.round(VOL_SHARE * 100)}% of the volume of the league's busiest player. Attack efficiency = (kills − errors − blocked) / attempts.${incompleteNote()}`)}</div>`;
   const draw = () => {
     $('#lgrid').innerHTML = LEADERS.map(c => {
       const { title, fmt: f, needPart, volMin } = leaderRules(c, all);
@@ -508,7 +532,7 @@ async function openPlayer(id) {
     <tbody>${p.games.map(g => {
       const home = g.home_team_id === g.team_id, my = home ? g.home_sets : g.away_sets, their = home ? g.away_sets : g.home_sets;
       return `<tr class="click" onclick="openGame(${g.game_id})"><td class="l sc">${fmtDate(g.play_date)}</td>
-        <td class="l">${home ? '' : '@ '}${esc(g.opponent)} <span class="${my > their ? 'pos' : 'neg'}">${my}-${their}</span></td>
+        <td class="l">${home ? '' : '@ '}${esc(g.opponent)} <span class="${my > their ? 'pos' : 'neg'}">${my}-${their}</span>${issues(g).length ? ` <span class="warnicon" title="${shortWarn()}">⚠</span>` : ''}</td>
         <td>${g.sets_played || '<span class="muted">·</span>'}</td><td>${g.vote ?? '<span class="muted">·</span>'}</td>
         ${BOX.map(c => `<td>${(c[2] || dash)(g[c[0]], g)}</td>`).join('')}</tr>`;
     }).join('')}
@@ -557,9 +581,9 @@ async function renderTeams() {
       .map(([k, m]) => `<button class="chip ${tstate.mode === k ? 'on' : ''}" data-m="${k}">${tr(m[0])}</button>`).join('')}</div></div>
     <div class="leaders" id="tgrid"></div>
     <div class="legend">${L(`Calculé sur les feuilles de statistiques importées. Points marqués et concédés = « balles » du classement officiel.
-      Fautes directes offertes = points marqués par l'adversaire sur nos fautes (service, attaque, filet…). Attaque adverse : plus c'est bas, meilleure est la défense.`,
+      Fautes directes offertes = points marqués par l'adversaire sur nos fautes (service, attaque, filet…). Attaque adverse : plus c'est bas, meilleure est la défense.${incompleteNote()}`,
       `Computed from the imported statistics sheets. Points scored and conceded match the official standings.
-      Unforced errors given = points the opponent scored from our errors (serve, attack, net…). Opponent attack: the lower, the better the defence.`)}</div>
+      Unforced errors given = points the opponent scored from our errors (serve, attack, net…). Opponent attack: the lower, the better the defence.${incompleteNote()}`)}</div>
     <h3>${L('Bilan par rotation', 'Rotation breakdown')}</h3><div class="card scroll" id="trot"></div>
     <h3>${L('Tableau complet', 'Full table')}</h3><div class="card scroll" id="ttable"></div>`;
   let draw = () => {
@@ -649,6 +673,7 @@ function updateInfo() {
   }
   if (meta.games_pending) parts.push(L(`${meta.games_pending} feuille(s) en attente de publication`, `${meta.games_pending} sheet(s) awaiting publication`));
   if (meta.last_error) parts.push(L('dernière vérification en erreur', 'last check failed'));
+  if (meta.games_incomplete) parts.push(L(`${meta.games_incomplete} feuille(s) officielle(s) incomplète(s)`, `${meta.games_incomplete} incomplete official sheet(s)`));
   return parts.join(' · ');
 }
 document.querySelectorAll('.lang button').forEach(b => b.onclick = () => {

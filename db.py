@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS games (
     hall          TEXT,
     city          TEXT,
     referees      TEXT,
-    stats_status  TEXT             -- NULL = pas encore traité, 'ok', 'missing', 'error: ...'
+    stats_status  TEXT,            -- NULL = pas encore traité, 'ok', 'missing', 'error: ...'
+    stats_quality TEXT             -- NULL = feuille complète ; sinon JSON des anomalies de saisie détectées
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -123,6 +124,7 @@ def connect(path=DB_PATH):
 
 
 MIGRATIONS = [
+    ("games", "stats_quality", "TEXT"),
     ("player_game", "sets_played", "INTEGER DEFAULT 0"),
     ("player_game", "start_zones", "TEXT"),
     ("players", "position", "TEXT"),
