@@ -21,8 +21,15 @@ python scraper.py
 - Importe les stats joueur par joueur et équipe par set dans `data/ch-volley-stats.db`.
 
 Seuls les nouveaux matchs sont traités. En production, le serveur s'en charge tout seul
-(`python server.py --update-every 60`, réglage du conteneur Docker) : une vérification toutes les
-heures à hh:05.
+(`python server.py --auto-update`, réglage du conteneur Docker), au rythme du calendrier
+(`next_update` dans `server.py`) :
+
+- au démarrage du serveur ;
+- 3 h après le début de chaque match ;
+- puis toutes les heures tant qu'un match commencé depuis plus de 3 h n'a pas sa feuille intégrée,
+  pendant 3 jours au plus (forfait, feuille jamais publiée : on retombe ensuite sur le passage
+  quotidien) ;
+- une fois par jour à 06:05 dans tous les cas, pour suivre les matchs déplacés et les effectifs.
 
 - Un match joué dont la feuille n'est pas encore publiée reste « en attente » et est retenté à
   chaque passage, jusqu'à ce qu'elle arrive.
@@ -35,7 +42,7 @@ heures à hh:05.
   14 jours au cas où une version corrigée serait publiée. Exemple : Lausanne – Colombier du 07.11.2026.
 - Les effectifs officiels (postes, nationalités) sont relus après une nouvelle feuille, ou au plus
   une fois par jour.
-- L'heure de la dernière vérification, les feuilles en attente et une éventuelle erreur sont
+- L'heure de la dernière et de la prochaine vérification, les feuilles en attente et une éventuelle erreur sont
   affichées dans l'app (table `meta`, route `api/meta`).
 Options : `--season 2027 --league <id>` pour une autre saison (l'id de ligue est dans l'URL du
 Game Center, paramètre `i_league`), `--reparse` pour réimporter depuis les PDF déjà téléchargés.

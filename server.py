@@ -238,31 +238,63 @@ class Handler(SimpleHTTPRequestHandler):
             con.close()
 
 
-def update_loop(every):
-    """Lance scraper.py au démarrage puis toutes les `every` minutes, calé sur hh:05 (heure locale, TZ).
-    Un passage sans nouveau match ne coûte qu'un appel au site ; les feuilles publiées tard dans la
-    soirée sont ainsi intégrées dans l'heure."""
+AFTER_START = timedelta(hours=3)    # première tentative : 3 h après le début du match
+RETRY_EVERY = timedelta(hours=1)    # puis toutes les heures tant qu'une feuille manque
+RETRY_FOR = timedelta(days=3)       # au-delà (forfait, feuille jamais publiée) : passage quotidien seulement
+DAILY_AT = (6, 5)                   # passage quotidien : calendrier (matchs déplacés), effectifs
+
+
+def next_update(con, now):
+    """Heure du prochain passage du scraper, d'après le calendrier des matchs (heure locale, TZ).
+    - 3 h après le début de chaque match ;
+    - toutes les heures tant qu'un match commencé depuis plus de 3 h (et moins de 3 jours) n'a pas sa
+      feuille intégrée ;
+    - une fois par jour dans tous les cas."""
+    daily = now.replace(hour=DAILY_AT[0], minute=DAILY_AT[1], second=0, microsecond=0)
+    if daily <= now:
+        daily += timedelta(days=1)
+    candidates = [daily]
+    for (play_date,) in con.execute("SELECT play_date FROM games WHERE COALESCE(stats_status, '') <> 'ok' "
+                                    "AND play_date IS NOT NULL"):
+        due = datetime.fromisoformat(play_date) + AFTER_START
+        if due > now:
+            candidates.append(due)                    # match à venir ou en cours
+        elif now - due < RETRY_FOR:
+            candidates.append(now + RETRY_EVERY)      # feuille attendue : on réessaie dans l'heure
+    return min(candidates)
+
+
+def update_loop():
+    """Lance scraper.py au démarrage puis aux heures données par next_update."""
     while True:
         print(time.strftime("%Y-%m-%d %H:%M"), "mise à jour des données", flush=True)
         try:
             subprocess.run([sys.executable, str(ROOT / "scraper.py")], cwd=ROOT, timeout=20 * 60)
         except subprocess.TimeoutExpired:
             print("mise à jour interrompue après 20 min", flush=True)
-        now = datetime.now()
-        day = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=5)
-        slots = int((now - day).total_seconds() // (every * 60)) + 1
-        time.sleep(max(60, (day + timedelta(minutes=every * slots) - now).total_seconds()))
+        con = db.connect()
+        try:
+            nxt = next_update(con, datetime.now())
+            db.set_meta(con, "next_check", nxt.isoformat(timespec="seconds"))
+            con.commit()
+        except Exception as e:   # base illisible : on retente dans l'heure
+            nxt = datetime.now() + RETRY_EVERY
+            print("calcul du prochain passage impossible :", e, flush=True)
+        finally:
+            con.close()
+        print("prochain passage :", nxt.strftime("%Y-%m-%d %H:%M"), flush=True)
+        time.sleep(max(60, (nxt - datetime.now()).total_seconds()))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--update-every", type=int, default=0,
-                    help="mise à jour automatique toutes les N minutes (0 = aucune)")
+    ap.add_argument("--auto-update", action="store_true",
+                    help="intégrer automatiquement les feuilles, d'après les heures de match")
     a = ap.parse_args()
-    if a.update_every:
-        threading.Thread(target=update_loop, args=(a.update_every,), daemon=True).start()
+    if a.auto_update:
+        threading.Thread(target=update_loop, daemon=True).start()
     print(f"ch-volley-stats : http://localhost:{a.port}", flush=True)
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 
