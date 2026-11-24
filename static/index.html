@@ -334,9 +334,9 @@ const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: tru
 
 // ---------- Classements statistiques (toute la ligue) ----------
 // count : statistique cumulable, affichée en total, par set ou par match selon le mode.
-// vol : colonne de volume pour les % (au moins VOL_SHARE du volume du leader de la ligue).
+// vol : colonne de volume pour les % (au moins VOL_PER_SET actions par set joué).
 // Hors totaux, un joueur doit en plus avoir joué une part minimale des sets de son équipe.
-const VOL_SHARE = 0.25;
+const VOL_PER_SET = 2;
 const fix = d => v => v == null ? '–' : v.toFixed(d);
 const LEADERS = [
   { t: ['Points', 'Points'], k: 'pts', fam: 'attack', count: true, sub: r => L(`${r.pts} pts : ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres`, `${r.pts} pts: ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} blocks`) },
@@ -356,13 +356,12 @@ const lstate = { top: 10, team: '', mode: 'set', part: 0.5, pos: '', nat: '' };
 const setsGames = r => L(`${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;m.`, `${r.sets}/${r.team_sets}&nbsp;sets · ${r.games}&nbsp;gp`);
 
 // Règles communes aux classements (onglet Stats joueurs et fiche joueur) : mode et minimums de lstate.
-// `pool` = joueurs comparés (toute la ligue, ou un poste) ; le volume minimum se calcule sur ce bassin.
+// `pool` = joueurs comparés (toute la ligue, ou un poste).
 function leaderRules(c, all) {
   const [, suffix, denom] = MODES[lstate.mode];
   const rate = c.count && denom;
   const needPart = !(c.count && lstate.mode === 'total');
-  // Seuils calculés sur tout le bassin, même quand la page filtre une équipe
-  const volMin = c.vol ? Math.ceil(VOL_SHARE * Math.max(...all.map(r => r[c.vol] || 0))) : 0;
+  const volMin = c.vol ? VOL_PER_SET : 0;
   return {
     title: tr(c.t) + (c.count ? tr(suffix) : ''), needPart, volMin,
     val: r => rate ? r[c.k] / Math.max(r[denom], 1) : r[c.k],
@@ -372,7 +371,7 @@ function leaderRules(c, all) {
 // Joueurs classables pour un classement, du meilleur au moins bon
 function leaderList(c, all) {
   const R = leaderRules(c, all);
-  return all.filter(r => r[c.k] != null && (!R.needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= R.volMin))
+  return all.filter(r => r[c.k] != null && (!R.needPart || r.sets >= lstate.part * r.team_sets) && (!c.vol || r[c.vol] >= R.volMin * r.sets))
     .map(r => ({ r, v: R.val(r) })).sort((a, b) => b.v - a.v || b.r.sets - a.r.sets);
 }
 const ordinal = n => L(n === 1 ? '1er' : `${n}e`, n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'));
@@ -389,10 +388,10 @@ async function renderLeaders() {
     </div><div class="leaders" id="lgrid"></div>
     <div class="legend">${L(`Sets joués = sets commencés comme titulaire ou entrés en remplacement (feuille officielle) ; un libéro sans marque est compté sur tout le match.
       Hors totaux, un joueur doit avoir joué la part minimale choisie des sets disputés par son équipe ; les classements en % exigent en plus
-      ${Math.round(VOL_SHARE * 100)} % du volume du joueur le plus sollicité de la ligue. Efficacité en attaque = (points − fautes − contrés) / attaques.${incompleteNote()}`,
+      ${VOL_PER_SET} actions (attaques ou réceptions) par set joué. Efficacité en attaque = (points − fautes − contrés) / attaques.${incompleteNote()}`,
       `Sets played = sets started or entered as a substitute (official sheet); an unmarked libero is counted for the whole match.
       Except for totals, a player must have played the selected share of his team's sets; percentage rankings also require
-      ${Math.round(VOL_SHARE * 100)}% of the volume of the league's busiest player. Attack efficiency = (kills − errors − blocked) / attempts.${incompleteNote()}`)}</div>`;
+      ${VOL_PER_SET} actions (attacks or receptions) per set played. Attack efficiency = (kills − errors − blocked) / attempts.${incompleteNote()}`)}</div>`;
   const draw = () => {
     $('#lgrid').innerHTML = LEADERS.map(c => {
       const { title, fmt: f, needPart, volMin } = leaderRules(c, all);
@@ -400,7 +399,7 @@ async function renderLeaders() {
           && (!lstate.pos || r.position === lstate.pos) && natMatch(r, lstate.nat)).slice(0, lstate.top);
       const max = Math.max(...list.map(x => x.v), 1e-9);
       const share = Math.round(lstate.part * 100);
-      const crit = [needPart && lstate.part ? L(`${share} % des sets de l'équipe`, `${share}% of team sets`) : '', c.vol ? `${volMin} ${tr(VOLNAME[c.vol])}` : '']
+      const crit = [needPart && lstate.part ? L(`${share} % des sets de l'équipe`, `${share}% of team sets`) : '', c.vol ? `${volMin} ${tr(VOLNAME[c.vol])}/set` : '']
         .filter(Boolean).join(' · ');
       return `<div class="card"><h2>${title}</h2><div class="crit">${crit ? 'min. ' + crit : ''}</div>
         ${list.map(({ r, v }, i) => `<div class="lrow${i ? '' : ' first'}" onclick="openPlayer(${r.player_id})">
@@ -514,8 +513,8 @@ async function openPlayer(id) {
   const ranksHtml = best.length ? `<div class="ranks">${best.map(b => `<div class="rankcard${b.rank === 1 ? ' top' : ''}">
       <div class="rkbig">${ordinal(b.rank)}</div><div><b>${b.title}</b><div class="muted">${b.value} · ${ofN(b.n)}</div></div></div>`).join('')}</div>
     <div class="legend">${among
-      ? L(`Meilleurs classements parmi les ${among} de la ligue, un par famille de stats (${modeName}, min. ${share} % des sets de l'équipe ; volume minimum calculé sur le poste).`,
-          `Best rankings among the league's ${among}, one per stat family (${modeName}, min. ${share}% of team sets; minimum volume computed within the position).`)
+      ? L(`Meilleurs classements parmi les ${among} de la ligue, un par famille de stats (${modeName}, min. ${share} % des sets de l'équipe ; min. ${VOL_PER_SET} actions par set pour les %).`,
+          `Best rankings among the league's ${among}, one per stat family (${modeName}, min. ${share}% of team sets; min. ${VOL_PER_SET} actions per set for percentages).`)
       : L(`Meilleurs classements dans la ligue (poste inconnu), un par famille de stats (${modeName}, min. ${share} % des sets de l'équipe).`,
           `Best league rankings (position unknown), one per stat family (${modeName}, min. ${share}% of team sets).`)}</div>`
     : all.some(r => r.player_id === id && r.sets >= lstate.part * r.team_sets)
