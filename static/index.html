@@ -7,11 +7,11 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #6a7380; --line: #e3e6ea;
-    --accent: #d6001c; --accent-soft: #fde8eb; --good: #1a7f4b; --bad: #b42318; --warn: #b45309;
+    --accent: #d6001c; --accent-soft: #fde8eb; --cmp-b: #1f6feb; --good: #1a7f4b; --bad: #b42318; --warn: #b45309;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #121417; --card: #1b1e23; --ink: #e8eaed; --muted: #98a1ad; --line: #2c3138;
-            --accent: #ff4d5e; --accent-soft: #3a1d22; --good: #4cc38a; --bad: #ff7a70; --warn: #f0a32a; }
+            --accent: #ff4d5e; --accent-soft: #3a1d22; --cmp-b: #58a6ff; --good: #4cc38a; --bad: #ff7a70; --warn: #f0a32a; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
@@ -95,6 +95,17 @@
   .rankcard .rkbig { font-size: 24px; font-weight: 800; min-width: 52px; text-align: center; color: var(--muted); }
   .rankcard.top { border-color: var(--accent); background: var(--accent-soft); }
   .rankcard.top .rkbig { color: var(--accent); }
+  .cmp-a { color: var(--accent); } .cmp-b { color: var(--cmp-b); }
+  .cmpsel { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .cmpsel input { flex: 1 1 200px; }
+  .cmptab { table-layout: fixed; }
+  .cmptab th, .cmptab td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+  .cmptab th:first-child { width: 40%; }
+  .cmptab td.best { font-weight: 700; }
+  .cmptab tr.sec td { text-align: left;  background: var(--bg); font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .radar { display: block; width: 100%; max-width: 420px; margin: 0 auto; }
+  .radar text { font-size: 11px; fill: var(--muted); }
+  button.chip:disabled { opacity: .45; cursor: default; }
 
   /* Téléphone */
   @media (max-width: 600px) {
@@ -134,6 +145,7 @@
       <button data-tab="teams"></button>
       <button data-tab="games"></button>
       <button data-tab="players"></button>
+      <button data-tab="compare"></button>
     </nav>
   </div>
 </header>
@@ -188,8 +200,8 @@ const load = async k => cache[k] ??= await api(k);
 
 // ---------- Onglets ----------
 const TABS = { standings: ['Classement', 'Standings'], leaders: ['Stats joueurs', 'Player stats'], teams: ['Stats équipes', 'Team stats'],
-               games: ['Matchs', 'Matches'], players: ['Joueurs', 'Players'] };
-const views = { standings: renderStandings, leaders: renderLeaders, games: renderGames, players: renderPlayers, teams: renderTeams };
+               games: ['Matchs', 'Matches'], players: ['Joueurs', 'Players'], compare: ['Comparer', 'Compare'] };
+const views = { standings: renderStandings, leaders: renderLeaders, games: renderGames, players: renderPlayers, teams: renderTeams, compare: renderCompare };
 let current = 'standings';
 $('#tabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -330,7 +342,7 @@ const PCATS = [['general', ['Général', 'Overall']], ['attack', ['Attaque', 'At
 const PMIN = { attack: ['att_tot', 20], serve: ['srv_tot', 15], reception: ['rec_tot', 20] };
 const VOLNAME = { att_tot: ['attaques', 'attacks'], srv_tot: ['services', 'serves'], rec_tot: ['réceptions', 'receptions'] };
 const PDEF = { general: 'pts', attack: 'att_eff', serve: 'srv_pts', reception: 'rec_pos_pct', block: 'blk_pts' };
-const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true, pos: '', nat: '' };
+const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: true, pos: '', nat: '', sel: [] };
 
 // ---------- Classements statistiques (toute la ligue) ----------
 // count : statistique cumulable, affichée en total, par set ou par match selon le mode.
@@ -448,6 +460,7 @@ async function renderPlayers() {
       <select id="ppos">${posOptions(pstate.pos)}</select><select id="pnat">${natOptions(pstate.nat)}</select>
       <input id="pq" placeholder="${L('Rechercher un joueur', 'Search a player')}" value="${esc(pstate.q)}">
       <label class="muted" id="pminl"><input type="checkbox" id="pmin" ${pstate.min ? 'checked' : ''}> ${L('volume minimum', 'minimum volume')}</label>
+      <button class="chip" id="pcmp"></button>
     </div><div class="scroll" id="ptable"></div></div>`;
   const draw = () => {
     const cols = PCOLS[pstate.cat], min = PMIN[pstate.cat];
@@ -456,9 +469,10 @@ async function renderPlayers() {
       && (!pstate.pos || r.position === pstate.pos) && natMatch(r, pstate.nat));
     if (min && pstate.min) list = list.filter(r => r[min[0]] >= min[1]);
     list.sort((a, b) => ((a[pstate.sort] ?? -1e9) - (b[pstate.sort] ?? -1e9)) * pstate.dir || a.name.localeCompare(b.name));
-    $('#ptable').innerHTML = `<table><thead><tr><th>#</th><th class="l sc">${L('Joueur', 'Player')}</th><th class="l">${L('Poste', 'Position')}</th><th class="l">${L('Nat.', 'Nat.')}</th><th class="l">${L('Équipe', 'Team')}</th>
+    $('#ptable').innerHTML = `<table><thead><tr><th title="${L('Cocher deux joueurs pour les comparer', 'Tick two players to compare them')}">⇄</th><th>#</th><th class="l sc">${L('Joueur', 'Player')}</th><th class="l">${L('Poste', 'Position')}</th><th class="l">${L('Nat.', 'Nat.')}</th><th class="l">${L('Équipe', 'Team')}</th>
       ${cols.map(c => `<th class="sort ${pstate.sort === c[0] ? 'active' : ''}" data-s="${c[0]}">${tr(c[1])}${pstate.sort === c[0] ? (pstate.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>
-      <tbody>${list.map((r, i) => `<tr class="click" onclick="openPlayer(${r.player_id})"><td class="num">${i + 1}</td>
+      <tbody>${list.map((r, i) => `<tr class="click" onclick="openPlayer(${r.player_id})">
+        <td onclick="event.stopPropagation()"><input type="checkbox" class="psel" data-id="${r.player_id}" ${pstate.sel.includes(r.player_id) ? 'checked' : ''}></td><td class="num">${i + 1}</td>
         <td class="l sc"><b>${esc(r.name)}</b> <span class="muted">${r.number ?? ''}</span></td><td class="l">${posTag(r)}</td>
         <td class="l muted" title="${esc(country(r))}">${r.nat_code || ''}</td><td class="l muted">${esc(r.team)}</td>
         ${cols.map(c => `<td>${(c[2] || (v => v ?? '–'))(r[c[0]])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="20" class="empty">${L('Aucun joueur', 'No players')}</td></tr>`}
@@ -469,6 +483,15 @@ async function renderPlayers() {
     document.querySelectorAll('#ptable th.sort').forEach(th => th.onclick = () => {
       pstate.dir = pstate.sort === th.dataset.s ? -pstate.dir : -1; pstate.sort = th.dataset.s; draw();
     });
+    // Au plus deux joueurs cochés : un troisième remplace le plus ancien
+    document.querySelectorAll('#ptable .psel').forEach(cb => cb.onchange = () => {
+      const id = +cb.dataset.id;
+      pstate.sel = cb.checked ? [...pstate.sel.filter(x => x !== id), id].slice(-2) : pstate.sel.filter(x => x !== id);
+      draw();
+    });
+    const n = pstate.sel.length;
+    $('#pcmp').textContent = L(`Comparer (${n}/2)`, `Compare (${n}/2)`);
+    $('#pcmp').disabled = n < 2;
   };
   document.querySelectorAll('.chip[data-c]').forEach(c => c.onclick = () => {
     pstate.cat = c.dataset.c; pstate.sort = PDEF[pstate.cat]; pstate.dir = -1;
@@ -479,6 +502,7 @@ async function renderPlayers() {
   $('#ppos').onchange = e => { pstate.pos = e.target.value; draw(); };
   $('#pnat').onchange = e => { pstate.nat = e.target.value; draw(); };
   $('#pmin').onchange = e => { pstate.min = e.target.checked; draw(); };
+  $('#pcmp').onclick = () => { [cstate.a, cstate.b] = pstate.sel; goCompare(); };
   draw();
 }
 
@@ -524,7 +548,8 @@ async function openPlayer(id) {
   const facts = [p.position && tr(POS[p.position]) + (p.position_src === 'déduit' ? L(' (déduit des feuilles)', ' (inferred from match sheets)') : ''),
     country(p), p.birth_year && L(`né en ${p.birth_year}`, `born ${p.birth_year}`), p.height && `${p.height} cm`].filter(Boolean).join(' · ');
   $('#dlg-title').innerHTML = `<div class="profile">${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy">` : ''}
-    <div><div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}${facts ? ' · ' + esc(facts) : ''}</div></div></div>`;
+    <div><div class="score">${esc(p.name)}</div><div class="muted">${esc(p.team)}${facts ? ' · ' + esc(facts) : ''}</div>
+    <button class="chip" style="margin-top:6px" onclick="compareFrom(${id})">⇄ ${L('Comparer avec…', 'Compare with…')}</button></div></div>`;
   const tot = k => p.games.reduce((s, g) => s + (g[k] || 0), 0);
   $('#dlg-body').innerHTML = `${ranksHtml}<h3>${L('Match par match', 'Match by match')}</h3><div class="scroll"><table>
     <thead>${groupHeader(BOX, 4)}<tr><th class="l sc">Date</th><th class="l">${L('Adversaire', 'Opponent')}</th><th>Sets</th><th>${L('Note', 'Rating')}</th>${BOX.map(c => `<th>${tr(c[1])}</th>`).join('')}</tr></thead>
@@ -538,6 +563,151 @@ async function openPlayer(id) {
     <tr><td class="l sc"><b>Total</b></td><td></td><td><b>${tot('sets_played')}</b></td><td></td>${BOX.map(c => `<td><b>${c[2] ? '' : tot(c[0])}</b></td>`).join('')}</tr>
     </tbody></table></div>`;
   dlg.showModal();
+}
+
+// ---------- Comparer deux joueurs ----------
+// count : cumulable, suit le mode (total / par set / par match) ; ctx : affiché sans désigner de meilleur ;
+// low : plus bas = mieux ; vol : volume requis pour qu'un % soit affiché.
+const CMP = [
+  [['Général', 'Overall'], [
+    { k: 'games', t: ['Matchs joués', 'Matches played'], ctx: true, raw: true },
+    { k: 'sets', t: ['Sets joués', 'Sets played'], ctx: true, raw: true },
+    { k: 'pts', t: ['Points', 'Points'], count: true },
+    { k: 'bp', t: ['Points en break-point', 'Break points'], count: true },
+    { k: 'wl', t: ['Différentiel V-D', 'Plus/minus'], count: true, signed: true },
+    { k: 'vote', t: ['Note moyenne Data Volley', 'Average Data Volley rating'], f: fix(1) }]],
+  [['Attaque', 'Attack'], [
+    { k: 'att_tot', t: ['Attaques', 'Attacks'], count: true, ctx: true },
+    { k: 'att_pts', t: ['Points', 'Kills'], count: true },
+    { k: 'att_err', t: ['Fautes', 'Errors'], count: true, ctx: true },
+    { k: 'att_blo', t: ['Contrés', 'Blocked'], count: true, ctx: true },
+    { k: 'att_pct', t: ['Réussite', 'Kill %'], f: pct, vol: 'att_tot' },
+    { k: 'att_eff', t: ['Efficacité', 'Efficiency'], f: pct, vol: 'att_tot' }]],
+  [['Service', 'Serve'], [
+    { k: 'srv_tot', t: ['Services', 'Serves'], count: true, ctx: true },
+    { k: 'srv_pts', t: ['Aces', 'Aces'], count: true },
+    { k: 'srv_err', t: ['Fautes', 'Errors'], count: true, ctx: true },
+    { k: 'ace_pct', t: ['Aces %', 'Ace %'], f: pct, vol: 'srv_tot' },
+    { k: 'err_pct', t: ['Fautes %', 'Error %'], f: pct, vol: 'srv_tot', low: true }]],
+  [['Réception', 'Reception'], [
+    { k: 'rec_tot', t: ['Réceptions', 'Receptions'], count: true, ctx: true },
+    { k: 'rec_err', t: ['Fautes', 'Errors'], count: true, ctx: true },
+    { k: 'rec_pos_pct', t: ['Positive (#+)', 'Positive (#+)'], f: pct, vol: 'rec_tot' },
+    { k: 'rec_exc_pct', t: ['Parfaite (#)', 'Perfect (#)'], f: pct, vol: 'rec_tot' },
+    { k: 'rec_err_pct', t: ['Fautes %', 'Error %'], f: pct, vol: 'rec_tot', low: true }]],
+  [['Bloc', 'Block'], [
+    { k: 'blk_pts', t: ['Points au contre', 'Block points'], count: true }]],
+];
+// Axes du radar : rang centile parmi les joueurs de la ligue ayant joué au moins la moitié des sets de leur équipe
+const RADAR = [
+  { k: 'pts', t: ['Points', 'Points'], count: true },
+  { k: 'att_eff', t: ['Eff. attaque', 'Attack eff.'], vol: 'att_tot' },
+  { k: 'srv_pts', t: ['Aces', 'Aces'], count: true },
+  { k: 'blk_pts', t: ['Contres', 'Blocks'], count: true },
+  { k: 'rec_pos_pct', t: ['Réc. positive', 'Pos. reception'], vol: 'rec_tot' },
+  { k: 'bp', t: ['Break-points', 'Break points'], count: true },
+];
+const cstate = { a: null, b: null, mode: 'set' };
+const cmpLabel = r => `${r.name} (${r.team})`;
+function goCompare(focusB) {
+  if (dlg.open) dlg.close();
+  document.querySelector('#tabs [data-tab=compare]').click();
+  if (focusB) $('#cmpb').focus();
+}
+function compareFrom(id) {
+  // Le joueur de la fiche devient A ; l'ancien A (s'il est différent) reste proposé en B
+  if (cstate.a !== id) cstate.b = cstate.a;
+  cstate.a = id;
+  goCompare(!cstate.b);
+}
+// Valeur d'une stat selon le mode ; null si le % repose sur aucune tentative
+function cmpVal(c, r, denom) {
+  if (r[c.k] == null || (c.vol && !r[c.vol])) return null;
+  return c.count && denom && !c.raw ? r[c.k] / Math.max(r[denom], 1) : r[c.k];
+}
+function radarSvg(all, A, B, denom) {
+  const pool = all.filter(r => r.sets >= 0.5 * r.team_sets);
+  const score = (c, r) => {
+    if (c.vol && r[c.vol] < VOL_PER_SET * r.sets) return null;   // pas assez de volume : non classé
+    const vals = pool.filter(x => !c.vol || x[c.vol] >= VOL_PER_SET * x.sets).map(x => cmpVal(c, x, denom)).filter(v => v != null);
+    const v = cmpVal(c, r, denom);
+    if (v == null || !vals.length) return null;
+    return (vals.filter(x => x < v).length + 0.5 * vals.filter(x => x === v).length) / vals.length;
+  };
+  const n = RADAR.length, cx = 210, cy = 170, R = 120;
+  const pt = (i, f) => { const a = -Math.PI / 2 + 2 * Math.PI * i / n; return [cx + R * f * Math.cos(a), cy + R * f * Math.sin(a)]; };
+  const poly = f => RADAR.map((_, i) => pt(i, f(i)).map(x => x.toFixed(1)).join(',')).join(' ');
+  const sa = RADAR.map(c => score(c, A)), sb = RADAR.map(c => score(c, B));
+  const grid = [0.25, 0.5, 0.75, 1].map(f => `<polygon points="${poly(() => f)}" style="fill:none;stroke:var(--line)"/>`).join('');
+  const axes = RADAR.map((c, i) => {
+    const [x, y] = pt(i, 1), [lx, ly] = pt(i, 1.16);
+    const anchor = Math.abs(lx - cx) < 5 ? 'middle' : lx > cx ? 'start' : 'end';
+    const nc = L('n.c.', 'n.r.'), pa = sa[i] == null ? nc : Math.round(100 * sa[i]), pb = sb[i] == null ? nc : Math.round(100 * sb[i]);
+    return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--line)"/>
+      <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle">${tr(c.t)}
+        <tspan x="${lx.toFixed(1)}" dy="13" style="fill:var(--accent)">${pa}</tspan><tspan dx="4" style="fill:var(--muted)">·</tspan><tspan dx="4" style="fill:var(--cmp-b)">${pb}</tspan></text>`;
+  }).join('');
+  const shape = (s, col) => `<polygon points="${poly(i => s[i] ?? 0)}" style="fill:${col};fill-opacity:.18;stroke:${col};stroke-width:2"/>`;
+  return `<svg class="radar" viewBox="0 0 420 330" role="img" aria-label="${L('Profil des deux joueurs', 'Profile of both players')}">
+    ${grid}${axes}${shape(sa, 'var(--accent)')}${shape(sb, 'var(--cmp-b)')}</svg>`;
+}
+async function renderCompare() {
+  const all = await loadPlayers();
+  const byLabel = new Map(all.map(r => [cmpLabel(r), r.player_id]));
+  const find = q => {
+    if (byLabel.has(q)) return byLabel.get(q);
+    const m = all.filter(r => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+    return q.trim() && m.length === 1 ? m[0].player_id : null;
+  };
+  const label = id => { const r = all.find(x => x.player_id === id); return r ? cmpLabel(r) : ''; };
+  $('#view').innerHTML = `<div class="card"><div class="toolbar">
+      <div class="cmpsel" style="flex:1 1 100%">
+        <input id="cmpa" list="cmplist" class="cmp-a" placeholder="${L('Joueur A', 'Player A')}" value="${esc(label(cstate.a))}">
+        <button class="chip" id="cmpswap" title="${L('Inverser', 'Swap')}">⇄</button>
+        <input id="cmpb" list="cmplist" class="cmp-b" placeholder="${L('Joueur B', 'Player B')}" value="${esc(label(cstate.b))}">
+      </div>
+      <div class="chips" id="cmode">${Object.entries(MODES).map(([k, m]) => `<button class="chip ${cstate.mode === k ? 'on' : ''}" data-m="${k}">${tr(m[0])}</button>`).join('')}</div>
+    </div>
+    <datalist id="cmplist">${all.map(r => `<option value="${esc(cmpLabel(r))}">`).join('')}</datalist>
+    <div id="cmpout"></div></div>`;
+  const draw = () => {
+    const A = all.find(r => r.player_id === cstate.a), B = all.find(r => r.player_id === cstate.b);
+    if (!A || !B) {
+      $('#cmpout').innerHTML = `<div class="empty">${L('Choisissez deux joueurs. On peut aussi partir d’une fiche joueur (bouton « Comparer avec… ») ou cocher deux joueurs dans l’onglet Joueurs.',
+        'Pick two players. You can also start from a player card (“Compare with…” button) or tick two players in the Players tab.')}</div>`;
+      return;
+    }
+    const [, suffix, denom] = MODES[cstate.mode];
+    const head = r => `<a href="#" onclick="openPlayer(${r.player_id});return false" class="${r === A ? 'cmp-a' : 'cmp-b'}"><b>${esc(r.name)}</b></a>
+      <div class="muted" style="font-weight:400">${esc(r.team)} ${posTag(r)}</div>`;
+    const rows = CMP.map(([sec, list]) => `<tr class="sec"><td colspan="3">${tr(sec)}</td></tr>` + list.map(c => {
+      const va = cmpVal(c, A, denom), vb = cmpVal(c, B, denom);
+      const rate = c.count && denom && !c.raw;
+      const f = v => v == null ? '–' : rate ? (c.signed && v > 0 ? '+' : '') + v.toFixed(denom === 'sets' ? 2 : 1) : c.signed ? sign(v) : (c.f || (x => x))(v);
+      // % sur trop peu de tentatives (même seuil que les classements) : affiché en gris, sans comparaison
+      const thin = r => c.vol && r[c.vol] < VOL_PER_SET * r.sets;
+      const better = c.ctx || va == null || vb == null || va === vb || thin(A) || thin(B) ? 0 : (va > vb) !== !!c.low ? 1 : 2;
+      const cls = (r, k) => better === k ? `best cmp-${k === 1 ? 'a' : 'b'}` : thin(r) ? 'muted' : '';
+      return `<tr><td class="l">${tr(c.t)}${rate ? `<span class="muted">${tr(suffix)}</span>` : ''}</td>
+        <td class="${cls(A, 1)}">${f(va)}</td><td class="${cls(B, 2)}">${f(vb)}</td></tr>`;
+    }).join('')).join('');
+    $('#cmpout').innerHTML = `<table class="cmptab">
+        <thead><tr><th class="l"></th><th>${head(A)}</th><th>${head(B)}</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="legend">${L(`En gras : la meilleure des deux valeurs (pour les fautes en %, la plus basse). Volumes et fautes en nombre sont donnés sans comparaison ; un % en gris repose sur moins de ${VOL_PER_SET} tentatives par set et n'est pas comparé.`,
+        `Bold: the better of the two values (lowest for error percentages). Volumes and error counts are shown without comparison; a grey % rests on fewer than ${VOL_PER_SET} attempts per set and is not compared.`)}</div>
+      <h3>${L('Profil', 'Profile')}</h3>${radarSvg(all, A, B, denom)}
+      <div class="legend">${L(`Rang centile dans la LNA (${tr(MODES[cstate.mode][0]).toLowerCase()}) parmi les joueurs ayant joué au moins la moitié des sets de leur équipe :
+        100 = meilleur de la ligue, 50 = médian. n.c. = non classé, moins de ${VOL_PER_SET} attaques ou réceptions par set.`,
+        `Percentile rank in the NLA (${tr(MODES[cstate.mode][0]).toLowerCase()}) among players who played at least half of their team's sets:
+        100 = best in the league, 50 = median. n.r. = not ranked, fewer than ${VOL_PER_SET} attacks or receptions per set.`)}</div>`;
+  };
+  const pick = (el, key) => el.onchange = () => { const id = find(el.value); cstate[key] = id; if (id) el.value = label(id); draw(); };
+  pick($('#cmpa'), 'a'); pick($('#cmpb'), 'b');
+  $('#cmpswap').onclick = () => { [cstate.a, cstate.b] = [cstate.b, cstate.a]; $('#cmpa').value = label(cstate.a); $('#cmpb').value = label(cstate.b); draw(); };
+  document.querySelectorAll('#cmode .chip').forEach(c => c.onclick = () => {
+    cstate.mode = c.dataset.m; document.querySelectorAll('#cmode .chip').forEach(x => x.classList.toggle('on', x === c)); draw();
+  });
+  draw();
 }
 
 // ---------- Stats équipes ----------
