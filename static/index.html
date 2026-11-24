@@ -336,7 +336,7 @@ const pstate = { cat: 'general', sort: 'pts', dir: -1, team: '', q: '', min: tru
 // count : statistique cumulable, affichée en total, par set ou par match selon le mode.
 // vol : colonne de volume pour les % (au moins VOL_SHARE du volume du leader de la ligue).
 // Hors totaux, un joueur doit en plus avoir joué une part minimale des sets de son équipe.
-const VOL_SHARE = 0.4;
+const VOL_SHARE = 0.25;
 const fix = d => v => v == null ? '–' : v.toFixed(d);
 const LEADERS = [
   { t: ['Points', 'Points'], k: 'pts', fam: 'attack', count: true, sub: r => L(`${r.pts} pts : ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} contres`, `${r.pts} pts: ${r.att_pts} att · ${r.srv_pts} aces · ${r.blk_pts} blocks`) },
